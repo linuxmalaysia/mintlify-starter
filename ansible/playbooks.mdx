@@ -34,7 +34,7 @@ All playbooks read their defaults from `ansible/group_vars/all.yml`. The table b
 | `elasticsearch_bind_address` | `127.0.0.1` (wsl2) | Elasticsearch network bind address |
 | `kibana_port` | `5601` | Kibana web UI port |
 | `fleet_server_port` | `8220` | Fleet Server enrollment port |
-| `container_name` | `es01` | Elasticsearch container name |
+| `container_name` | `es01` (`dsom-persistence-es-node-01` for `wsl2`) | Elasticsearch container name |
 | `network_name` | `elk-wolfi_elastic` | Podman network shared by all stack containers |
 
 <Note>
@@ -86,7 +86,7 @@ The playbooks execute in two distinct phases that separate privileged host prepa
     - Tunes kernel parameters required by Elasticsearch, including `vm.max_map_count` and `fs.inotify.max_user_watches`
     - Enables systemd lingering for the deployment user so services survive logout
 
-    Tasks guarded by `is_limited_environment` are automatically skipped when running in restricted sandboxes (such as WSL2 or the Jules environment) where kernel parameter changes are unavailable.
+    Tasks guarded by `is_limited_environment` are automatically skipped when running in restricted sandboxes (such as WSL2) where kernel parameter changes are unavailable.
   </Step>
   <Step title="Phase 1 — Application Provisioning">
     This phase runs as your unprivileged deployment user (rootless) and handles everything above the OS layer:

@@ -1,7 +1,7 @@
 ---
-title: "Fleet Server Setup for Elastic Agent Management"
+title: "Fleet Server Setup and Elastic Agent Management with Podman"
 sidebarTitle: "Fleet Server"
-description: "Deploy Fleet Server with the Elastic Agent Wolfi image using Podman to manage and enroll Elastic Agents across your environment."
+description: "Deploy Fleet Server with the Elastic Agent Wolfi image using Podman to centrally manage and enroll Elastic Agents across your environment."
 ---
 
 Fleet Server acts as the central management hub for all Elastic Agents in your environment. It bridges Kibana's Fleet UI with the agents running on your hosts, relaying policies, receiving status updates, and forwarding collected data to Elasticsearch. Deploy Fleet Server only after both Elasticsearch and Kibana are fully operational, since the setup script queries a live Elasticsearch node to determine the correct image version and validate connectivity.
@@ -15,13 +15,13 @@ Fleet Server acts as the central management hub for all Elastic Agents in your e
 ## Prerequisites
 
 <CardGroup cols={3}>
-  <Card title="Elasticsearch Running" icon="database">
+  <Card title="Elasticsearch Running" icon="database" href="/components/elasticsearch">
     `setup_elasticsearch.sh` must have completed successfully. Fleet Server reads credentials and the SSL certificate it creates.
   </Card>
-  <Card title="Kibana Running" icon="chart-line">
+  <Card title="Kibana Running" icon="chart-line" href="/components/kibana">
     `setup_kibana.sh` must have completed successfully. You generate the Fleet service token inside the Kibana UI.
   </Card>
-  <Card title="Fleet Service Token" icon="key">
+  <Card title="Fleet Service Token" icon="key" href="#getting-the-fleet-service-token">
     A Fleet service token from the Kibana Fleet settings page. See [Getting the Fleet Service Token](#getting-the-fleet-service-token) below.
   </Card>
 </CardGroup>

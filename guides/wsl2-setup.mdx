@@ -1,7 +1,7 @@
 ---
-title: "Deploy Elastic Stack on Windows 11 WSL2"
+title: "Deploy Elastic Stack on Windows 11 WSL2 with Podman"
 sidebarTitle: "WSL2 Setup"
-description: "Step-by-step guide to deploying Elasticsearch, Kibana, and Fleet Server on Windows 11 WSL2 using Podman and Wolfi images."
+description: "Step-by-step guide to deploying Elasticsearch, Kibana, and Fleet Server on Windows 11 WSL2 using Podman and hardened Wolfi container images."
 ---
 
 This guide walks you through deploying the full Elastic Stack—Elasticsearch, Kibana, and Fleet Server—inside a Windows 11 WSL2 Linux environment using Podman and hardened Wolfi container images. You will install and configure a WSL2 distribution, clone the toolkit, and run the automated setup scripts, all without leaving your Windows machine.
@@ -61,8 +61,8 @@ This guide walks you through deploying the full Elastic Stack—Elasticsearch, K
 
     ```bash
     cd ~
-    git clone https://github.com/linuxmalaysia/podman-elastic-stack.git
-    cd podman-elastic-stack
+    git clone https://github.com/linuxmalaysia/podman-elastic-stack-ai.git
+    cd podman-elastic-stack-ai
     ```
 
     <Tip>
@@ -114,12 +114,12 @@ If you prefer to trigger the full Ansible-based deployment without opening a WSL
 <Tabs>
   <Tab title="Ubuntu 26.04">
     ```powershell
-    wsl -d Ubuntu-26.04 bash -c "cd /home/youruser/podman-elastic-stack && ./run_playbooks.sh"
+    wsl -d Ubuntu-26.04 bash -c "cd /home/youruser/podman-elastic-stack-ai && ./run_playbooks.sh"
     ```
   </Tab>
   <Tab title="AlmaLinux 10">
     ```powershell
-    wsl -d AlmaLinux-10 bash -c "cd /home/youruser/podman-elastic-stack && ./run_playbooks.sh"
+    wsl -d AlmaLinux-10 bash -c "cd /home/youruser/podman-elastic-stack-ai && ./run_playbooks.sh"
     ```
   </Tab>
 </Tabs>

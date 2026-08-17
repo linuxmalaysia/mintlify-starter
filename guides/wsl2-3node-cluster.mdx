@@ -1,7 +1,7 @@
 ---
-title: "Run a 3-Node Elasticsearch Cluster on WSL2"
+title: "Run a 3-Node Elasticsearch Cluster on WSL2 with Podman"
 sidebarTitle: "3-Node Cluster"
-description: "Set up a fully functional 3-node Elasticsearch cluster plus Kibana on a single WSL2 instance using Podman and Ansible."
+description: "Set up a fully functional 3-node Elasticsearch cluster plus Kibana on a single WSL2 instance using Podman, Ansible, and hardened Wolfi images."
 ---
 
 This guide shows you how to simulate a production-grade Elasticsearch cluster entirely within WSL2 on a single Windows machine. By running three Elasticsearch nodes plus Kibana as separate Podman containers inside one WSL2 instance, you get real quorum voting, shard replication, and cluster health behaviour—without needing multiple physical hosts or VMs.
@@ -103,8 +103,8 @@ networkingMode=mirrored
 
     ```bash
     cd ~
-    git clone https://github.com/linuxmalaysia/podman-elastic-stack.git
-    cd podman-elastic-stack
+    git clone https://github.com/linuxmalaysia/podman-elastic-stack-ai.git
+    cd podman-elastic-stack-ai
     ```
   </Step>
 

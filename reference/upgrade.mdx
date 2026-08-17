@@ -134,7 +134,7 @@ Use this approach if you are running the standalone shell scripts rather than An
 After all containers are back up, run these checks to confirm a healthy deployment.
 
 <CardGroup cols={3}>
-  <Card title="Cluster Health" icon="heart-pulse">
+  <Card title="Cluster Health" icon="heart-pulse" href="https://www.elastic.co/guide/en/elasticsearch/reference/current/cluster-health.html">
     Confirm Elasticsearch reports a `green` or `yellow` status:
 
     ```bash
@@ -144,11 +144,11 @@ After all containers are back up, run these checks to confirm a healthy deployme
     ```
   </Card>
 
-  <Card title="Kibana UI" icon="browser">
+  <Card title="Kibana UI" icon="browser" href="http://localhost:5601">
     Open [http://localhost:5601](http://localhost:5601) in your browser and confirm Kibana loads and can reach Elasticsearch without errors.
   </Card>
 
-  <Card title="Fleet Agents" icon="shield-check">
+  <Card title="Fleet Agents" icon="shield-check" href="https://www.elastic.co/guide/en/fleet/current/fleet-settings.html">
     If the Fleet Server version changed, re-enroll your Fleet Agents. In Kibana, navigate to **Fleet → Settings → Generate service token** and update each agent.
   </Card>
 </CardGroup>

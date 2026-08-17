@@ -1,7 +1,7 @@
 ---
-title: "Automate Elastic Stack Deployment with Ansible"
+title: "Automate Elastic Stack on Podman with Ansible Playbooks"
 sidebarTitle: "Overview"
-description: "Use Ansible playbooks to automate idempotent, declarative deployment of Elasticsearch, Kibana, and Fleet Server with Podman."
+description: "Use Ansible playbooks to automate idempotent, declarative deployment of Elasticsearch, Kibana, and Fleet Server with rootless Podman on Linux."
 ---
 
 The Ansible automation layer gives you a declarative, repeatable way to deploy Elasticsearch, Kibana, and Fleet Server across any supported Linux environment — from a single WSL2 workstation to a multi-VM cluster. Instead of running bash scripts by hand, you define your desired state once in variables and let Ansible converge the system to that state every time, safely and consistently.
@@ -74,10 +74,9 @@ The `deployment_option` variable in `ansible/group_vars/all.yml` controls how th
 | `wsl2` | Windows 11 WSL2 local development | `127.0.0.1` |
 | `single_node` | Single VM or bare metal server | `0.0.0.0` |
 | `multi_node` | Multiple dedicated hosts or VMs | `0.0.0.0` |
-| `jules` | Google Jules sandbox environment | `127.0.0.1` |
 
 <Note>
-The `wsl2` and `jules` options bind services to `127.0.0.1`, keeping them accessible only from the local machine. The `single_node` and `multi_node` options bind to `0.0.0.0`, exposing services on all network interfaces — make sure your firewall rules are in place before using these in production.
+The `wsl2` option binds services to `127.0.0.1`, keeping them accessible only from the local machine. The `single_node` and `multi_node` options bind to `0.0.0.0`, exposing services on all network interfaces — make sure your firewall rules are in place before using these in production.
 </Note>
 
 ## Explore Further

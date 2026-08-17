@@ -1,7 +1,7 @@
 ---
 title: "Rootless Podman 5+ and Quadlet Orchestration Guide"
 sidebarTitle: "Rootless Podman"
-description: "Run Elasticsearch, Kibana, and Fleet Server as an unprivileged user with rootless Podman 5+ and systemd Quadlet unit files."
+description: "Run Elasticsearch, Kibana, and Fleet Server as an unprivileged user with rootless Podman 5+ and persistent systemd Quadlet unit files."
 ---
 
 Rootless Podman runs containers entirely under your user account without requiring root privileges or a background daemon. When a container is compromised in rootless mode, the attacker's reach is bounded by your user's permissions rather than the full host system — a meaningful reduction in blast radius. This project uses rootless Podman 5+ as the default runtime for all local and WSL2 deployments, complemented by systemd Quadlet unit files that turn declarative container definitions into persistent user-level services.

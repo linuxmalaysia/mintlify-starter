@@ -1,5 +1,5 @@
 ---
-title: "Kibana Setup and Access with Podman Wolfi Images"
+title: "Kibana Setup and Web UI Access with Podman Wolfi Images"
 sidebarTitle: "Kibana"
 description: "Deploy Kibana 9.4.4 with a hardened Wolfi image using Podman. Configure the Kibana enrollment token and access the web UI at port 5601."
 ---
@@ -9,10 +9,10 @@ Kibana provides the web-based interface you use to explore Elasticsearch data, b
 ## Prerequisites
 
 <CardGroup cols={2}>
-  <Card title="Elasticsearch Running" icon="database">
+  <Card title="Elasticsearch Running" icon="database" href="/components/elasticsearch">
     Run `setup_elasticsearch.sh` successfully before starting Kibana. The Kibana script reads credentials and the SSL certificate from the files Elasticsearch setup creates.
   </Card>
-  <Card title="Network and Certificate Present" icon="lock">
+  <Card title="Network and Certificate Present" icon="lock" href="/components/elasticsearch#container-configuration">
     The Podman network `elk-wolfi_elastic` and the file `elk-wolfi/certs/http_ca.crt` must exist. Both are created automatically by `setup_elasticsearch.sh`.
   </Card>
 </CardGroup>

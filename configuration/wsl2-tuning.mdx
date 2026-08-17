@@ -1,7 +1,7 @@
 ---
 title: "WSL2 Performance Tuning for Elastic Stack on Podman"
 sidebarTitle: "WSL2 Tuning"
-description: "Optimize WSL2 memory, CPU, kernel parameters, and file descriptors for running Elasticsearch and Kibana on Windows 11 WSL2."
+description: "Optimize WSL2 memory, CPU, swap, kernel parameters, and file descriptor limits for running Elasticsearch and Kibana on Windows 11 WSL2."
 ---
 
 Running Elasticsearch inside WSL2 requires specific kernel and system tuning to achieve stable, performant operation. Without these adjustments, Elasticsearch will frequently fail to start or will crash under load due to insufficient virtual memory map counts, exhausted file descriptors, or an under-resourced WSL2 virtual machine. The settings on this page address each of those areas systematically.
@@ -42,16 +42,16 @@ The correct memory allocation depends on how much physical RAM your Windows host
 ### Key Settings Explained
 
 <CardGroup cols={2}>
-  <Card title="networkingMode=mirrored" icon="network-wired">
+  <Card title="networkingMode=mirrored" icon="network-wired" href="https://learn.microsoft.com/en-us/windows/wsl/networking">
     Maps Windows localhost and WSL2 localhost to the same address, making Elasticsearch reachable from Windows browsers and tools without extra port forwarding.
   </Card>
-  <Card title="dnsTunneling=true" icon="globe">
+  <Card title="dnsTunneling=true" icon="globe" href="https://learn.microsoft.com/en-us/windows/wsl/networking">
     Routes DNS queries through the Windows DNS stack, ensuring corporate VPN and custom DNS resolvers work correctly inside WSL2.
   </Card>
-  <Card title="autoMemoryReclaim=gradual" icon="memory">
+  <Card title="autoMemoryReclaim=gradual" icon="memory" href="https://learn.microsoft.com/en-us/windows/wsl/wsl-config">
     Gradually returns unused WSL2 memory back to Windows, preventing the virtual machine from holding on to memory that Elasticsearch has released.
   </Card>
-  <Card title="sparseVhd=true" icon="hard-drive">
+  <Card title="sparseVhd=true" icon="hard-drive" href="https://learn.microsoft.com/en-us/windows/wsl/wsl-config">
     Automatically compacts the virtual hard disk when the WSL2 filesystem frees space, preventing disk image bloat over time.
   </Card>
 </CardGroup>
@@ -68,9 +68,19 @@ systemd=true
 enabled=true
 options=metadata,umask=22,fmask=11
 
+[network]
+generateHosts=true
+generateResolvConf=true
+
 [interop]
 enabled=true
 appendWindowsPath=true
+
+[gpu]
+enabled=true
+
+[time]
+useWindowsTimezone=true
 ```
 
 <Accordion title="What each section does">
@@ -78,7 +88,13 @@ appendWindowsPath=true
 
   **`[automount] options=metadata,umask=22,fmask=11`** — Preserves Linux file permission metadata on Windows-mounted drives. Without `metadata`, Podman volume mounts that cross the Windows/Linux boundary lose their permission bits.
 
+  **`[network]`** — Ensures WSL2 generates `/etc/hosts` and `/etc/resolv.conf` automatically, keeping DNS resolution consistent with your Windows host configuration.
+
   **`[interop] appendWindowsPath=true`** — Keeps Windows executables like `powershell.exe` and `wslpath` reachable from inside WSL2, which is required for the Ansible automated hardware detection tasks.
+
+  **`[gpu] enabled=true`** — Enables GPU acceleration inside WSL2 for workloads that can use DirectML or CUDA passthrough.
+
+  **`[time] useWindowsTimezone=true`** — Synchronizes the WSL2 timezone with your Windows host, preventing timestamp mismatches in Elasticsearch logs and index names.
 </Accordion>
 
 ## Kernel Tuning Parameters

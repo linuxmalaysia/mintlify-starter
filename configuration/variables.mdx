@@ -1,7 +1,7 @@
 ---
-title: "Configuration Variables Reference for Elastic Stack on Podman"
+title: "Configuration Variables for Elastic Stack on Podman"
 sidebarTitle: "Variables"
-description: "Complete reference for all configurable variables in ansible/group_vars/all.yml that control the Elastic Stack Podman deployment."
+description: "Complete reference for every configurable variable in ansible/group_vars/all.yml that controls your Elastic Stack on Podman deployment."
 ---
 
 All deployment settings for Elastic Stack on Podman are controlled through a single file — `ansible/group_vars/all.yml`. Every variable in this file has a sensible default, and any of them can be overridden at runtime by passing `-e "variable=value"` flags directly to `ansible-playbook`, so you never need to edit the file itself for one-off changes.
@@ -18,7 +18,6 @@ The `deployment_option` variable is the primary switch that governs bind address
   | `wsl2` | Windows 11 WSL2, localhost only | `127.0.0.1` |
   | `single_node` | Single VM or bare-metal host | `0.0.0.0` |
   | `multi_node` | Multiple dedicated hosts | `0.0.0.0` |
-  | `jules` | Google Jules automated environment | `127.0.0.1` |
 </ParamField>
 
 <Tip>
@@ -31,9 +30,9 @@ These variables determine which IP address each service listens on. Their defaul
 
 | Variable | Default | Description |
 |---|---|---|
-| `elasticsearch_bind_address` | `127.0.0.1` (wsl2/jules) / `0.0.0.0` (others) | Elasticsearch listener address for port 9200 |
-| `kibana_bind_address` | `127.0.0.1` (wsl2/jules) / `0.0.0.0` (others) | Kibana listener address for port 5601 |
-| `fleet_server_bind_address` | `127.0.0.1` (wsl2/jules) / `0.0.0.0` (others) | Fleet Server listener address for port 8220 |
+| `elasticsearch_bind_address` | `127.0.0.1` (wsl2) / `0.0.0.0` (single_node, multi_node) | Elasticsearch listener address for port 9200 |
+| `kibana_bind_address` | `127.0.0.1` (wsl2) / `0.0.0.0` (single_node, multi_node) | Kibana listener address for port 5601 |
+| `fleet_server_bind_address` | `127.0.0.1` (wsl2) / `0.0.0.0` (single_node, multi_node) | Fleet Server listener address for port 8220 |
 
 <Note>
   Overriding a single bind address variable does not change the others. If you need all three services on a custom address, override each variable explicitly.

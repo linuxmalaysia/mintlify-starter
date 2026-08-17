@@ -13,17 +13,17 @@ This page tracks notable changes and improvements to the Elastic Stack on Podman
 ### Added
 
 <CardGroup cols={1}>
-  <Card title="Windows 11 WSL2 deployment guide" icon="windows">
+  <Card title="Windows 11 WSL2 deployment guide" icon="windows" href="https://learn.microsoft.com/en-us/windows/wsl/install">
     A comprehensive guide for deploying the full Elastic Stack inside Windows 11 WSL2 environments. The guide covers both **Ubuntu 26.04** and **AlmaLinux 10** distributions, including step-by-step instructions for setting up WSL2, installing Podman 5+, and running the Ansible playbooks.
   </Card>
-  <Card title="PowerShell-native WSL2 playbook execution" icon="terminal">
+  <Card title="PowerShell-native WSL2 playbook execution" icon="terminal" href="https://learn.microsoft.com/en-us/windows/wsl/basic-commands">
     You can now execute Ansible playbooks directly from **Windows PowerShell** using the native `wsl` command, without opening a separate Linux terminal session. For example:
 
     ```powershell
     wsl -d Ubuntu-26.04 bash -c "cd /home/user/podman-elastic-stack && ./run_playbooks.sh"
     ```
   </Card>
-  <Card title="HISTORY.md project milestones file" icon="clock-rotate-left">
+  <Card title="HISTORY.md project milestones file" icon="clock-rotate-left" href="https://github.com/linuxmalaysia/podman-elastic-stack-ai/blob/main/HISTORY.md">
     A dedicated `HISTORY.md` file now documents major project milestones and the architectural transition from standalone bash scripts to Ansible playbooks.
   </Card>
 </CardGroup>
