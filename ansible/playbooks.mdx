@@ -1,0 +1,138 @@
+---
+title: "Ansible Playbook Reference for Elastic Stack on Podman"
+sidebarTitle: "Playbooks"
+description: "Reference guide for all Ansible playbooks that deploy and configure Elasticsearch, Kibana, and Fleet Server using Podman on Linux."
+---
+
+Each component of the Elastic Stack has a dedicated Ansible playbook that handles its full lifecycle — from pulling the hardened Wolfi image and preparing host directories to starting the container and verifying connectivity. The playbooks are designed to be run together through the primary orchestrator or individually when you need to redeploy a single service.
+
+## Playbook Map
+
+The table below lists every playbook in the project along with the services it manages and its role in the deployment pipeline.
+
+| Playbook | Services Managed | Purpose |
+|---|---|---|
+| `ansible/main.yml` | All | Orchestrates all three setup playbooks in sequence |
+| `ansible/setup_elasticsearch.yml` | Elasticsearch | Deploy Wolfi Elasticsearch container |
+| `ansible/setup_kibana.yml` | Kibana | Deploy and configure Kibana |
+| `ansible/setup_fleet_server.yml` | Fleet Server | Deploy Fleet Server container |
+| `site.yml` | Elasticsearch + Kibana | Root-level cluster orchestration |
+| `playbooks/matrix_test.yml` | Test containers | Cross-platform OS validation matrix |
+
+<Tip>
+Use `ansible/main.yml` for full-stack deployments. Use the individual `setup_*.yml` playbooks when you need to reprovision a single service without touching the rest of the stack.
+</Tip>
+
+## Key Variables
+
+All playbooks read their defaults from `ansible/group_vars/all.yml`. The table below documents the most important variables you are likely to override.
+
+| Variable | Default | Description |
+|---|---|---|
+| `elk_version` | `9.4.4` | Elastic Stack version applied to all images |
+| `deployment_option` | `wsl2` | Deployment target type; controls bind addresses |
+| `elasticsearch_bind_address` | `127.0.0.1` (wsl2) | Elasticsearch network bind address |
+| `kibana_port` | `5601` | Kibana web UI port |
+| `fleet_server_port` | `8220` | Fleet Server enrollment port |
+| `container_name` | `es01` | Elasticsearch container name |
+| `network_name` | `elk-wolfi_elastic` | Podman network shared by all stack containers |
+
+<Note>
+The `elasticsearch_bind_address`, `kibana_bind_address`, and `fleet_server_bind_address` variables are all derived from `deployment_option` using a Jinja2 conditional. Setting `deployment_option: single_node` automatically sets all three bind addresses to `0.0.0.0`.
+</Note>
+
+## Overriding Variables at Runtime
+
+You can override any variable defined in `group_vars/all.yml` by passing `-e` flags directly to `ansible-playbook`. This is useful for pinning a specific stack version or switching deployment targets without editing the defaults file:
+
+```bash
+ansible-playbook -i inventory/hosts.yml ansible/main.yml \
+  -e "elk_version=9.4.4" \
+  -e "deployment_option=single_node"
+```
+
+For Fleet Server deployments, pass your service token and policy ID the same way:
+
+```bash
+ansible-playbook -i inventory/hosts.yml ansible/setup_fleet_server.yml \
+  -e "fleet_server_service_token=YOUR_TOKEN_HERE" \
+  -e "fleet_server_policy_id=YOUR_POLICY_ID"
+```
+
+## Running Individual Playbooks
+
+Run a single component playbook when you need to redeploy or reconfigure just one part of the stack. Make sure the upstream dependencies are already running before targeting a downstream service.
+
+```bash
+# Elasticsearch only
+ansible-playbook -i inventory/hosts.yml ansible/setup_elasticsearch.yml
+
+# Kibana only (requires Elasticsearch running)
+ansible-playbook -i inventory/hosts.yml ansible/setup_kibana.yml
+
+# Fleet Server only (requires Elasticsearch and Kibana running)
+ansible-playbook -i inventory/hosts.yml ansible/setup_fleet_server.yml
+```
+
+## Deployment Phases
+
+The playbooks execute in two distinct phases that separate privileged host preparation from unprivileged application provisioning.
+
+<Steps>
+  <Step title="Phase 0 — Host Preparation">
+    This phase runs with `become: true` (sudo privileges) and handles all system-level prerequisites:
+
+    - Installs `podman` and `podman-compose` using `apt` on Ubuntu/Debian or `dnf` on RHEL/AlmaLinux
+    - Tunes kernel parameters required by Elasticsearch, including `vm.max_map_count` and `fs.inotify.max_user_watches`
+    - Enables systemd lingering for the deployment user so services survive logout
+
+    Tasks guarded by `is_limited_environment` are automatically skipped when running in restricted sandboxes (such as WSL2 or the Jules environment) where kernel parameter changes are unavailable.
+  </Step>
+  <Step title="Phase 1 — Application Provisioning">
+    This phase runs as your unprivileged deployment user (rootless) and handles everything above the OS layer:
+
+    - Creates named Podman volumes and the shared `elk-wolfi_elastic` network
+    - Generates `podman-compose` configuration files from Jinja2 templates
+    - Pulls hardened Wolfi images for Elasticsearch, Kibana, and Fleet Server
+    - Starts containers and waits for health checks to pass
+    - Retrieves the auto-generated `elastic` password and Kibana enrollment token, writing them to `elk-wolfi/temp_credentials.txt`
+    - Copies the Elasticsearch CA certificate to `elk-wolfi/certs/` for downstream TLS trust
+  </Step>
+</Steps>
+
+<Note>
+Re-running any playbook is safe. Ansible checks the current container state before acting — if a container is already running with the correct configuration, the task reports `ok` and moves on without recreating or restarting anything.
+</Note>
+
+## Playbook Details
+
+<Accordion title="setup_elasticsearch.yml — what it does">
+  This playbook manages the complete Elasticsearch container lifecycle:
+
+  - Detects the host OS and installs Podman using the appropriate package manager
+  - Creates `/data/<container_name>` with `1000:1000` ownership for rootless volume access
+  - Generates a `podman-compose.yml` from template and starts the container
+  - Resets the `elastic` user password and saves it securely to `temp_credentials.txt`
+  - Copies `http_ca.crt` from the running container to the host `certs/` directory
+  - Verifies Elasticsearch is reachable via `curl` against the HTTPS endpoint
+  - Generates a Kibana enrollment token for use in the next phase
+</Accordion>
+
+<Accordion title="setup_kibana.yml — what it does">
+  This playbook depends on a running Elasticsearch instance:
+
+  - Verifies that the Elasticsearch certificate, password file, and Podman network all exist
+  - Launches a temporary Kibana container to extract the default `kibana.yml` configuration
+  - Creates `podman-compose-kibana.yml` from template, injecting the enrollment token and CA certificate path
+  - Starts the persistent Kibana container and waits for the UI to become available
+  - Retrieves the interactive setup verification code using `podman exec`
+</Accordion>
+
+<Accordion title="setup_fleet_server.yml — what it does">
+  This playbook registers and starts the Elastic Fleet Server agent:
+
+  - Reads the `elastic` password from `temp_credentials.txt` generated in the Elasticsearch phase
+  - Accepts `fleet_server_service_token` and `fleet_server_policy_id` either from `group_vars/all.yml` or as `-e` runtime overrides
+  - Generates `podman-compose-fleet-server.yml` with the correct enrollment endpoint and CA trust bundle
+  - Starts the Fleet Server container and confirms it registers successfully with Kibana
+</Accordion>

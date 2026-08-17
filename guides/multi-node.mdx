@@ -1,0 +1,231 @@
+---
+title: "Multi-Node Elastic Stack Cluster Deployment Guide"
+sidebarTitle: "Multi-Node"
+description: "Deploy Elasticsearch across multiple physical or virtual machines using Ansible and Podman for distributed cluster configurations."
+---
+
+The multi-node deployment option lets you spread your Elastic Stack across multiple dedicated Linux hosts or virtual machines. Ansible manages the entire fleet from a single control machine, pushing the same hardened Wolfi-based Podman configuration to every target node simultaneously—so you get a consistent, repeatable cluster build regardless of how many machines are involved.
+
+## Use Cases
+
+<CardGroup cols={3}>
+  <Card
+    title="Production-Like Environments"
+    icon="building"
+    href="#deployment-steps"
+  >
+    Mirror a real Elasticsearch cluster topology for integration and acceptance testing before going live.
+  </Card>
+  <Card
+    title="Performance Testing"
+    icon="gauge-high"
+    href="#deployment-steps"
+  >
+    Distribute load across nodes to benchmark shard allocation, query throughput, and ingestion pipelines.
+  </Card>
+  <Card
+    title="High-Availability Training"
+    icon="shield-check"
+    href="#deployment-steps"
+  >
+    Practice cluster quorum, node failure scenarios, and rolling upgrades on a safe non-production cluster.
+  </Card>
+</CardGroup>
+
+---
+
+## Architecture Overview
+
+In a multi-node configuration, each host runs its own Podman container for Elasticsearch. A dedicated Podman bridge network on each host connects to the cluster transport layer. Ansible operates from a single **control machine** (which can be your laptop or a jump host) and applies playbooks over SSH to every target node.
+
+```text
+Control Machine (Ansible)
+        │
+        ├── SSH ──► node1 (192.168.1.10)  [es-node-01 Podman container]
+        ├── SSH ──► node2 (192.168.1.11)  [es-node-02 Podman container]
+        └── SSH ──► node3 (192.168.1.12)  [es-node-03 Podman container]
+```
+
+<Note>
+  **Prerequisites** — ensure all of the following are in place before you start:
+  - **Ansible** installed on your control machine (`ansible --version` should return 2.14 or later)
+  - **SSH access** from the control machine to every target host (key-based authentication recommended)
+  - **Python 3** installed on all target hosts (required by Ansible)
+  - At least **8 GB RAM** per node (16 GB recommended)
+  - All target hosts running a supported Linux distribution (Ubuntu 26.04, AlmaLinux 10, Debian, etc.)
+</Note>
+
+---
+
+## Deployment Steps
+
+<Steps>
+  <Step title="Install Ansible on Your Control Machine">
+    Install Ansible on the machine you will run playbooks from.
+
+    <Tabs>
+      <Tab title="Ubuntu / Debian">
+        ```bash
+        sudo apt-get update
+        sudo apt-get install -y ansible
+        ```
+      </Tab>
+      <Tab title="AlmaLinux / RHEL / Rocky">
+        ```bash
+        sudo dnf install -y epel-release
+        sudo dnf install -y ansible
+        ```
+      </Tab>
+      <Tab title="pip (any OS)">
+        ```bash
+        pip3 install --user ansible
+        ```
+      </Tab>
+    </Tabs>
+
+    Confirm the installation:
+
+    ```bash
+    ansible --version
+    ```
+  </Step>
+
+  <Step title="Clone the Repository on the Control Machine">
+    ```bash
+    git clone https://github.com/linuxmalaysia/podman-elastic-stack.git
+    cd podman-elastic-stack
+    ```
+  </Step>
+
+  <Step title="Configure the Inventory File">
+    Open `inventory/hosts.yml` and define every target host. Replace the IP addresses and SSH user with values matching your infrastructure:
+
+    ```yaml
+    all:
+      hosts:
+        node1:
+          ansible_host: 192.168.1.10
+          ansible_user: deploy
+        node2:
+          ansible_host: 192.168.1.11
+          ansible_user: deploy
+        node3:
+          ansible_host: 192.168.1.12
+          ansible_user: deploy
+    ```
+
+    Verify that Ansible can reach all hosts:
+
+    ```bash
+    ansible all -i inventory/hosts.yml -m ping
+    ```
+
+    Every host should return `"ping": "pong"` before you continue.
+  </Step>
+
+  <Step title="Set the Deployment Option">
+    Open `ansible/group_vars/all.yml` and set `deployment_option` to `multi_node`:
+
+    ```yaml
+    # ansible/group_vars/all.yml
+    deployment_option: "multi_node"
+    ```
+
+    With this setting the toolkit automatically configures all bind addresses to `0.0.0.0`, which is required for inter-node cluster communication:
+
+    ```yaml
+    elasticsearch_bind_address: "0.0.0.0"
+    kibana_bind_address:        "0.0.0.0"
+    fleet_server_bind_address:  "0.0.0.0"
+    ```
+
+    You can also review and adjust the Elasticsearch version and other stack-wide defaults in this file before deploying.
+  </Step>
+
+  <Step title="Run the Playbooks">
+    Execute the master playbook runner script from the repository root:
+
+    ```bash
+    ./run_playbooks.sh -i inventory/hosts.yml
+    ```
+
+    The script calls `ansible-playbook` against `ansible/main.yml`, which orchestrates the full deployment sequence: installing Podman, pulling the Wolfi images, generating TLS certificates, and starting all containers across every node.
+
+    <Tip>
+      Pass `-v` (or `-vv` / `-vvv`) to increase Ansible verbosity if you need to debug a failing task:
+
+      ```bash
+      ./run_playbooks.sh -i inventory/hosts.yml -v
+      ```
+    </Tip>
+  </Step>
+
+  <Step title="Verify Cluster Health">
+    After the playbooks complete, check that all nodes have formed a cluster. Run this from any node (or from your control machine if it can reach the cluster network). Replace `<password>` with the password stored in `elk-wolfi/temp_credentials.txt` on node1:
+
+    ```bash
+    curl --cacert elk-wolfi/certs/http_ca.crt \
+      -u elastic:<password> \
+      https://192.168.1.10:9200/_cluster/health?pretty
+    ```
+
+    A healthy three-node cluster returns:
+
+    ```json
+    {
+      "cluster_name" : "dsom-cluster",
+      "status" : "green",
+      "number_of_nodes" : 3,
+      "number_of_data_nodes" : 3
+    }
+    ```
+
+    If the status is `yellow`, the cluster has formed but some replica shards are unassigned. This is normal immediately after cluster formation; the status typically turns `green` within a few minutes.
+  </Step>
+</Steps>
+
+---
+
+## Inventory Reference
+
+Below is an annotated example of a three-node inventory file to use as a starting point:
+
+```yaml
+all:
+  hosts:
+    node1:
+      ansible_host: 192.168.1.10
+    node2:
+      ansible_host: 192.168.1.11
+    node3:
+      ansible_host: 192.168.1.12
+  vars:
+    ansible_user: deploy          # SSH user on all target hosts
+    ansible_ssh_private_key_file: ~/.ssh/id_rsa
+    execution_mode: "user"
+```
+
+<Note>
+  All services must bind to `0.0.0.0` for the Elasticsearch transport layer to communicate between nodes. Confirm that `deployment_option: "multi_node"` is set in `ansible/group_vars/all.yml` before running the playbooks. If you set any bind address to `127.0.0.1`, cross-node communication will fail and the cluster will not form.
+</Note>
+
+---
+
+## What's Next
+
+<CardGroup cols={2}>
+  <Card
+    title="Single-Node Deployment"
+    icon="circle-dot"
+    href="/guides/single-node"
+  >
+    Start with a simpler self-contained stack on a single Linux host before scaling to multiple nodes.
+  </Card>
+  <Card
+    title="3-Node Cluster on WSL2"
+    icon="windows"
+    href="/guides/wsl2-3node-cluster"
+  >
+    Simulate a multi-node cluster entirely within WSL2 on a single Windows machine.
+  </Card>
+</CardGroup>

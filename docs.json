@@ -1,72 +1,79 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
-  "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
-  },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "pages": [
-      {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
+  "name": "Elastic Stack on Podman",
+  "theme": "aspen",
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "https://media.brand.dev/3880aa9c-91a2-4042-862a-801bbfb69859.svg",
+    "dark": "https://media.brand.dev/3880aa9c-91a2-4042-862a-801bbfb69859.svg"
+  },
+  "favicon": "https://media.brand.dev/c970be97-c246-4f51-8bf2-fd4f17ca21f2.webp",
+  "colors": {
+    "primary": "#7c7494",
+    "light": "#614f77",
+    "dark": "#cbbbd8"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/linuxmalaysia/podman-elastic-stack-ai"
     }
   },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "prerequisites"
+            ]
+          },
+          {
+            "group": "Deployment Guides",
+            "pages": [
+              "guides/wsl2-setup",
+              "guides/single-node",
+              "guides/multi-node",
+              "guides/wsl2-3node-cluster"
+            ]
+          },
+          {
+            "group": "Stack Components",
+            "pages": [
+              "components/elasticsearch",
+              "components/kibana",
+              "components/fleet-server"
+            ]
+          },
+          {
+            "group": "Ansible Automation",
+            "pages": [
+              "ansible/overview",
+              "ansible/playbooks",
+              "ansible/rootless-podman"
+            ]
+          },
+          {
+            "group": "Configuration & Tuning",
+            "pages": [
+              "configuration/variables",
+              "configuration/wsl2-tuning",
+              "configuration/security"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/upgrade",
+              "reference/troubleshooting",
+              "reference/changelog"
+            ]
+          }
+        ]
+      }
     ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
   }
 }

@@ -1,0 +1,92 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "Elastic Stack on Podman",
+  "projectDescription": "Automated deployment of Elasticsearch, Kibana, and Fleet Server using Podman with hardened Wolfi images, supporting single-node, multi-node, and WSL2 environments via shell scripts and Ansible playbooks.",
+  "theme": "aspen",
+  "primaryColor": "#7c7494",
+  "lightColor": "#614f77",
+  "darkColor": "#cbbbd8",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "prerequisites"
+            ]
+          },
+          {
+            "group": "Deployment Guides",
+            "pages": [
+              "guides/wsl2-setup",
+              "guides/single-node",
+              "guides/multi-node",
+              "guides/wsl2-3node-cluster"
+            ]
+          },
+          {
+            "group": "Stack Components",
+            "pages": [
+              "components/elasticsearch",
+              "components/kibana",
+              "components/fleet-server"
+            ]
+          },
+          {
+            "group": "Ansible Automation",
+            "pages": [
+              "ansible/overview",
+              "ansible/playbooks",
+              "ansible/rootless-podman"
+            ]
+          },
+          {
+            "group": "Configuration & Tuning",
+            "pages": [
+              "configuration/variables",
+              "configuration/wsl2-tuning",
+              "configuration/security"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/upgrade",
+              "reference/troubleshooting",
+              "reference/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "One-command deployment of Elasticsearch 9.4.4 with hardened Wolfi images via Podman",
+    "Automated Kibana setup with enrollment token generation and SSL certificate management",
+    "Fleet Server deployment for Elastic Agent management",
+    "Rootless Podman 5+ support with systemd Quadlet orchestration",
+    "Multi-distribution support: AlmaLinux, Ubuntu, Debian",
+    "WSL2 (Windows 11) deployment with 3-node cluster topology",
+    "Ansible playbook automation with idempotent, declarative state management",
+    "Cosign image signature verification for supply chain security",
+    "Configurable bind addresses for local or networked deployments",
+    "Ansible-driven WSL2 kernel tuning (vm.max_map_count, inotify, file descriptors)"
+  ],
+  "publicApiSurface": [
+    "setup_elasticsearch.sh — pulls Wolfi Elasticsearch image, configures Podman network, starts container, generates credentials",
+    "setup_kibana.sh — pulls Wolfi Kibana image, extracts default config, starts container with custom kibana.yml",
+    "setup_fleet_server.sh — pulls Wolfi elastic-agent-complete image, configures Fleet Server with service token",
+    "run_playbooks.sh — master Ansible runner invoking ansible/main.yml with inventory support",
+    "ansible/main.yml — orchestrates setup_elasticsearch.yml, setup_kibana.yml, setup_fleet_server.yml",
+    "ansible/group_vars/all.yml — global variables: elk_version, deployment_option, bind addresses, image names, ports",
+    "Elasticsearch REST API at https://localhost:9200",
+    "Kibana UI at http://localhost:5601",
+    "Fleet Server at https://localhost:8220",
+    "podman-compose.yml — single-node Elasticsearch container definition",
+    "podman-compose-kibana.yml — Kibana container definition with volume and custom config mount"
+  ]
+}

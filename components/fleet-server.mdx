@@ -1,0 +1,232 @@
+---
+title: "Fleet Server Setup for Elastic Agent Management"
+sidebarTitle: "Fleet Server"
+description: "Deploy Fleet Server with the Elastic Agent Wolfi image using Podman to manage and enroll Elastic Agents across your environment."
+---
+
+Fleet Server acts as the central management hub for all Elastic Agents in your environment. It bridges Kibana's Fleet UI with the agents running on your hosts, relaying policies, receiving status updates, and forwarding collected data to Elasticsearch. Deploy Fleet Server only after both Elasticsearch and Kibana are fully operational, since the setup script queries a live Elasticsearch node to determine the correct image version and validate connectivity.
+
+<Warning>
+  Fleet Server support is currently marked **Work In Progress**. The setup script and container configuration are functional for evaluation and testing, but you should validate all behaviour thoroughly before using this in a production environment.
+</Warning>
+
+---
+
+## Prerequisites
+
+<CardGroup cols={3}>
+  <Card title="Elasticsearch Running" icon="database">
+    `setup_elasticsearch.sh` must have completed successfully. Fleet Server reads credentials and the SSL certificate it creates.
+  </Card>
+  <Card title="Kibana Running" icon="chart-line">
+    `setup_kibana.sh` must have completed successfully. You generate the Fleet service token inside the Kibana UI.
+  </Card>
+  <Card title="Fleet Service Token" icon="key">
+    A Fleet service token from the Kibana Fleet settings page. See [Getting the Fleet Service Token](#getting-the-fleet-service-token) below.
+  </Card>
+</CardGroup>
+
+---
+
+## Getting the Fleet Service Token
+
+You must generate a Fleet service token in Kibana before running the setup script. The script prompts you for this token interactively.
+
+<Steps>
+  <Step title="Log into Kibana">
+    Open your browser and navigate to:
+
+    ```
+    http://localhost:5601
+    ```
+
+    Sign in with the `elastic` user and the password from `elk-wolfi/temp_credentials.txt`.
+  </Step>
+
+  <Step title="Open Fleet Settings">
+    In the left navigation, go to **Management → Fleet**. If this is your first time opening Fleet, Kibana walks you through an initial Fleet setup wizard — complete it before proceeding.
+  </Step>
+
+  <Step title="Generate a service token">
+    Select the **Settings** tab, scroll to the **Service Tokens** section, and click **Generate service token**. Kibana displays the token once. Copy it immediately — you cannot retrieve it again after closing the dialog.
+  </Step>
+
+  <Step title="Note your Fleet Server Policy ID">
+    While still in the Fleet UI, navigate to **Agent Policies** and note the **Policy ID** of the Fleet Server policy you want to use. You will also enter this value when the setup script prompts you.
+  </Step>
+</Steps>
+
+---
+
+## Running the Setup
+
+Make the script executable, then run it from the repository root:
+
+```bash
+chmod +x setup_fleet_server.sh
+./setup_fleet_server.sh
+```
+
+The script pauses at two interactive prompts:
+
+```
+Enter the Fleet Service Token (generated from Fleet policy in Kibana):
+Enter the Fleet Server Policy ID:
+```
+
+Paste the values you collected from Kibana and press **Enter** after each one.
+
+---
+
+## What the Script Does
+
+<Steps>
+  <Step title="Verify prerequisites and Elasticsearch connectivity">
+    Confirms that `podman` and `podman-compose` are installed, that `elk-wolfi/certs/http_ca.crt` exists, that the `elk-wolfi_elastic` Podman network is present, and that Elasticsearch responds correctly at `https://localhost:9200`.
+  </Step>
+
+  <Step title="Pull the Fleet Server Wolfi image">
+    Uses the Elasticsearch version number to pull the matching image:
+
+    ```
+    docker.elastic.co/elastic-agent/elastic-agent-complete-wolfi:<version>
+    ```
+
+    The `complete` variant includes all required Elastic Agent integrations, including the Synthetics plugin.
+  </Step>
+
+  <Step title="Optionally verify the image with cosign">
+    If `cosign` is installed, downloads `artifacts.elastic.co/cosign.pub` and verifies the image signature. If `cosign` is not found, this step is skipped.
+  </Step>
+
+  <Step title="Create podman-compose-fleet-server.yml">
+    Generates the compose file in `elk-wolfi/` with your service token, policy ID, and bind address already embedded.
+  </Step>
+
+  <Step title="Start Fleet Server on port 8220">
+    Brings up the Fleet Server container in detached mode and waits up to 60 seconds for it to reach the running state:
+
+    ```bash
+    cd elk-wolfi && podman-compose -f podman-compose-fleet-server.yml up -d
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Container Configuration
+
+Fleet Server binds to `127.0.0.1:8220` by default. The generated `podman-compose-fleet-server.yml` looks like this:
+
+```yaml
+version: '3.8'
+services:
+  fleet-server:
+    image: docker.elastic.co/elastic-agent/elastic-agent-complete-wolfi:<version>
+    container_name: fleet-server
+    ports:
+      - "127.0.0.1:8220:8220"
+    environment:
+      - FLEET_SERVER_ENABLE=true
+      - FLEET_SERVER_ELASTICSEARCH_HOST=https://es01:9200
+      - FLEET_SERVER_SERVICE_TOKEN=<your-service-token>
+      - FLEET_SERVER_POLICY_ID=<your-policy-id>
+    user: root
+    volumes:
+      - fleet_server_data:/data/fleet_server
+    networks:
+      - elk-wolfi_elastic
+volumes:
+  fleet_server_data:
+networks:
+  elk-wolfi_elastic:
+    external: true
+```
+
+To expose Fleet Server to agents on other hosts, set the `BIND_ADDRESS` environment variable before running the script:
+
+```bash
+BIND_ADDRESS=0.0.0.0 ./setup_fleet_server.sh
+```
+
+---
+
+## Enrolling Elastic Agents
+
+Once Fleet Server is running, use the Kibana Fleet UI to add agents to your environment:
+
+<Steps>
+  <Step title="Add an agent in Kibana Fleet">
+    In Kibana, go to **Management → Fleet → Agents** and click **Add agent**. Select an agent policy and Kibana generates an enrollment command.
+  </Step>
+
+  <Step title="Run the enrollment command on your host">
+    Copy the `elastic-agent install` command from Kibana and run it on each host you want to enroll. The command includes an enrollment token and the Fleet Server URL (`https://<fleet-server-host>:8220`).
+  </Step>
+
+  <Step title="Verify enrollment">
+    Return to the **Agents** page in Kibana. Your enrolled agents should appear with a **Healthy** status within a few minutes.
+  </Step>
+</Steps>
+
+---
+
+## Managing Fleet Server
+
+<CodeGroup>
+
+```bash View logs
+podman logs fleet-server
+```
+
+```bash Check status
+podman ps --filter name=fleet-server
+```
+
+```bash Stop
+cd elk-wolfi && podman-compose -f podman-compose-fleet-server.yml down
+```
+
+```bash Restart
+podman restart fleet-server
+```
+
+</CodeGroup>
+
+---
+
+## Synthetics Browser Tests
+
+<Note>
+  Fleet Server runs as `root` by default so it can bootstrap itself correctly. If you need to run **Synthetics Browser** tests, you must change the container user to `elastic-agent` after the initial setup — Synthetics cannot run under the root user.
+
+  Edit `elk-wolfi/podman-compose-fleet-server.yml` and change the `user` field:
+
+  ```yaml
+  user: elastic-agent
+  ```
+
+  Then restart Fleet Server to apply the change:
+
+  ```bash
+  cd elk-wolfi
+  podman-compose -f podman-compose-fleet-server.yml down
+  podman-compose -f podman-compose-fleet-server.yml up -d
+  ```
+</Note>
+
+---
+
+## Cleanup
+
+To stop Fleet Server and remove its resources:
+
+```bash
+# Stop and remove the container
+cd elk-wolfi && podman-compose -f podman-compose-fleet-server.yml down --volumes
+
+# Remove the compose file
+rm -f elk-wolfi/podman-compose-fleet-server.yml
+```
+
+Before cleaning up, unenroll any active agents from the Kibana Fleet UI to avoid orphaned agent processes on your hosts.

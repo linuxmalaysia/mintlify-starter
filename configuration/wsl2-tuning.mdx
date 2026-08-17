@@ -1,0 +1,148 @@
+---
+title: "WSL2 Performance Tuning for Elastic Stack on Podman"
+sidebarTitle: "WSL2 Tuning"
+description: "Optimize WSL2 memory, CPU, kernel parameters, and file descriptors for running Elasticsearch and Kibana on Windows 11 WSL2."
+---
+
+Running Elasticsearch inside WSL2 requires specific kernel and system tuning to achieve stable, performant operation. Without these adjustments, Elasticsearch will frequently fail to start or will crash under load due to insufficient virtual memory map counts, exhausted file descriptors, or an under-resourced WSL2 virtual machine. The settings on this page address each of those areas systematically.
+
+## Global VM Settings — `.wslconfig`
+
+The `.wslconfig` file controls how much CPU, RAM, and swap the WSL2 virtual machine receives from Windows. Place this file at `C:\Users\YourName\.wslconfig` on your Windows host, replacing `YourName` with your actual Windows username.
+
+```ini
+[wsl2]
+memory=12GB
+processors=8
+swap=16GB
+networkingMode=mirrored
+dnsTunneling=true
+autoProxy=true
+
+[experimental]
+autoMemoryReclaim=gradual
+sparseVhd=true
+```
+
+### Memory Sizing Guide
+
+The correct memory allocation depends on how much physical RAM your Windows host has. Use the table below as a starting point — Ansible's automated tuning will calculate and apply the appropriate value for your hardware automatically.
+
+| Host RAM | Recommended WSL2 Memory |
+|---|---|
+| 16 GB | 10 GB |
+| 32 GB | 22 GB |
+| 64 GB | 48 GB |
+| 128 GB+ | 96 GB |
+
+<Tip>
+  The Ansible playbook queries your Windows host's physical memory via PowerShell and selects the correct `memory=` value automatically. It also clamps the allocation so it never exceeds your actual physical RAM minus 2 GB for Windows.
+</Tip>
+
+### Key Settings Explained
+
+<CardGroup cols={2}>
+  <Card title="networkingMode=mirrored" icon="network-wired">
+    Maps Windows localhost and WSL2 localhost to the same address, making Elasticsearch reachable from Windows browsers and tools without extra port forwarding.
+  </Card>
+  <Card title="dnsTunneling=true" icon="globe">
+    Routes DNS queries through the Windows DNS stack, ensuring corporate VPN and custom DNS resolvers work correctly inside WSL2.
+  </Card>
+  <Card title="autoMemoryReclaim=gradual" icon="memory">
+    Gradually returns unused WSL2 memory back to Windows, preventing the virtual machine from holding on to memory that Elasticsearch has released.
+  </Card>
+  <Card title="sparseVhd=true" icon="hard-drive">
+    Automatically compacts the virtual hard disk when the WSL2 filesystem frees space, preventing disk image bloat over time.
+  </Card>
+</CardGroup>
+
+## Per-Distribution Settings — `/etc/wsl.conf`
+
+The `/etc/wsl.conf` file controls per-distribution behavior inside your WSL2 Linux instance. Edit or create this file inside your WSL2 terminal.
+
+```ini
+[boot]
+systemd=true
+
+[automount]
+enabled=true
+options=metadata,umask=22,fmask=11
+
+[interop]
+enabled=true
+appendWindowsPath=true
+```
+
+<Accordion title="What each section does">
+  **`[boot] systemd=true`** — Enables the systemd init system inside WSL2. This is required for Podman's socket activation and for any services managed by `systemctl`.
+
+  **`[automount] options=metadata,umask=22,fmask=11`** — Preserves Linux file permission metadata on Windows-mounted drives. Without `metadata`, Podman volume mounts that cross the Windows/Linux boundary lose their permission bits.
+
+  **`[interop] appendWindowsPath=true`** — Keeps Windows executables like `powershell.exe` and `wslpath` reachable from inside WSL2, which is required for the Ansible automated hardware detection tasks.
+</Accordion>
+
+## Kernel Tuning Parameters
+
+Run these commands inside your WSL2 terminal to apply the kernel settings Elasticsearch requires. The changes take effect immediately without a restart.
+
+```bash
+# Required for Elasticsearch — sets the maximum virtual memory map count
+sudo sysctl -w vm.max_map_count=262144
+
+# Inotify watches — needed for Kibana's file watching
+sudo sysctl -w fs.inotify.max_user_watches=524288
+
+# File descriptor limits — prevents "Too many open files" errors
+echo '* soft nofile 65535' | sudo tee -a /etc/security/limits.conf
+echo '* hard nofile 65535' | sudo tee -a /etc/security/limits.conf
+```
+
+<Warning>
+  `sysctl -w` changes are lost on WSL2 restart. Make the settings persistent using the steps below.
+</Warning>
+
+### Making Kernel Settings Persistent
+
+Append the sysctl values to `/etc/sysctl.conf` so they are reapplied each time WSL2 starts:
+
+```bash
+echo 'vm.max_map_count=262144' | sudo tee -a /etc/sysctl.conf
+echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf
+```
+
+## Automated Tuning with Ansible
+
+The `wsl_tuning.yml` task file in the playbook applies all of the above — `.wslconfig`, `/etc/wsl.conf`, `vm.max_map_count`, `fs.inotify.max_user_watches`, and file descriptor limits — in a single run. It queries your Windows host hardware via PowerShell to calculate the optimal memory and CPU values for your specific machine.
+
+Run the main playbook to apply all tuning in one step:
+
+```bash
+ansible-playbook -i inventory/hosts.yml ansible/main.yml
+```
+
+<Accordion title="What the playbook automates">
+  The `wsl_tuning.yml` task file performs these steps in order:
+
+  - **Part A**: Queries Windows host RAM and CPU via `powershell.exe`, then calculates the optimal `memory=` and `processors=` values.
+  - **Part B**: Resolves the Windows user profile path and converts it to a WSL2 Unix path using `wslpath`.
+  - **Part C**: Writes the calculated `.wslconfig` to `%UserProfile%\.wslconfig` on the Windows side.
+  - **Part D**: Checks and sets `vm.max_map_count` to `262144` if it is currently below the required threshold.
+  - **Part E**: Writes all required sections to `/etc/wsl.conf` using `blockinfile`.
+  - **Part F**: Checks and sets `fs.inotify.max_user_watches` to `524288` if needed.
+  - **Part G**: Appends the `nofile` soft and hard limits to `/etc/security/limits.conf`.
+  - **Part H**: Displays a post-play reminder to run `wsl.exe --shutdown`.
+</Accordion>
+
+## Applying `.wslconfig` Changes
+
+After modifying `.wslconfig` — whether by hand or through Ansible — you must shut down and restart the WSL2 virtual machine from a Windows PowerShell or Command Prompt window for the new CPU and memory settings to take effect:
+
+```powershell
+wsl.exe --shutdown
+```
+
+Then reopen your WSL2 terminal to start the distribution with the new settings applied.
+
+<Note>
+  Changes to `.wslconfig` (memory, processors, swap) and `/etc/wsl.conf` (systemd, automount) only become active after a full `wsl.exe --shutdown`. A simple terminal close is not sufficient — the virtual machine must be fully stopped.
+</Note>

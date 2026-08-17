@@ -1,0 +1,79 @@
+---
+title: "Elastic Stack on Podman: What Is It and Why Use It"
+sidebarTitle: "Introduction"
+description: "Elastic Stack on Podman automates Elasticsearch, Kibana, and Fleet Server deployment using Podman 5+ and security-hardened Wolfi container images."
+---
+
+Elastic Stack on Podman is an open-source automated deployment toolkit that installs and configures Elasticsearch 9.4.4, Kibana 9.4.4, and Fleet Server as rootless Podman containers on Linux-based systems. Rather than manually pulling images, writing compose files, and managing TLS certificates, you run a single shell script — or a set of Ansible playbooks — and the toolkit handles every step: image verification, credential generation, certificate distribution, and service startup. At the heart of the project is a commitment to security: every component runs from a **distroless Wolfi base image**, which strips out the unnecessary OS packages that traditional images carry, dramatically shrinking the attack surface of each container.
+
+## Key capabilities
+
+<CardGroup cols={2}>
+  <Card
+    title="Hardened Wolfi Images"
+    icon="shield-halved"
+    href="/components/elasticsearch"
+  >
+    All three stack components use official Elastic Wolfi images — distroless builds that eliminate unused packages and reduce the CVE exposure compared with standard base images.
+  </Card>
+  <Card
+    title="Rootless Podman 5+"
+    icon="lock"
+    href="/prerequisites"
+  >
+    Containers run entirely without root privileges using Podman 5+, isolating the stack from the host system and meeting modern security baselines.
+  </Card>
+  <Card
+    title="Multi-Distribution Support"
+    icon="linux"
+    href="/prerequisites"
+  >
+    The setup scripts and Ansible playbooks detect your operating system automatically and support AlmaLinux, RHEL, Ubuntu, and Debian out of the box.
+  </Card>
+  <Card
+    title="Ansible Automation"
+    icon="scroll"
+    href="/ansible/overview"
+  >
+    Declarative, idempotent Ansible playbooks let you deploy and re-run the stack safely across single-node and multi-node environments without side effects.
+  </Card>
+  <Card
+    title="WSL2 Support"
+    icon="windows"
+    href="/guides/wsl2-setup"
+  >
+    Deploy the full three-node cluster topology on Windows 11 using WSL2, enabling local high-availability testing without dedicated hardware.
+  </Card>
+  <Card
+    title="Fleet Server"
+    icon="server"
+    href="/components/fleet-server"
+  >
+    Manage Elastic Agents across your environment through Fleet Server, which runs as a separate Podman container on port 8220 and integrates directly with your Kibana instance.
+  </Card>
+</CardGroup>
+
+## Deployment options
+
+Choose the topology that matches your environment. All options are driven by the same codebase — you select your target by setting the `deployment_option` variable in `ansible/group_vars/all.yml` or by following the appropriate guide.
+
+| Option | Environment | Topology | Best for |
+|--------|-------------|----------|----------|
+| **WSL2** | Windows 11 with WSL2 | Minimum 3 Podman nodes/pods | Local development and testing on Windows |
+| **Single Node** | Single physical host or VM | 3 Podman pods on one machine | Developer workstations and small labs |
+| **Multi-Node VM** | Multiple VMs or bare-metal hosts | Dedicated Podman node per VM | Staging and pre-production environments |
+| **3-Node Cluster** | Three dedicated hosts | One Elasticsearch node per host | Production-like high-availability testing |
+
+## What you get after setup
+
+Once the setup scripts or Ansible playbooks complete successfully, you have a fully operational Elastic Stack with TLS-secured inter-service communication and auto-generated credentials:
+
+- **Elasticsearch** is available at `https://localhost:9200` — secured with a self-signed CA certificate saved to `elk-wolfi/certs/http_ca.crt`.
+- **Kibana** is available at `http://localhost:5601` — pre-enrolled against your Elasticsearch instance using the generated enrollment token.
+- **Fleet Server** is available at `https://localhost:8220` — ready to accept Elastic Agent enrollments once you configure a service token and policy ID.
+
+Your auto-generated `elastic` user password and Kibana enrollment token are both written to `elk-wolfi/temp_credentials.txt` immediately after Elasticsearch starts.
+
+<Note>
+  Store the contents of `elk-wolfi/temp_credentials.txt` somewhere secure and remove the file from the repository directory once you have recorded the credentials. The file is listed in `.gitignore` by default, but treat its contents as sensitive.
+</Note>

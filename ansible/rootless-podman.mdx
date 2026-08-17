@@ -1,0 +1,149 @@
+---
+title: "Rootless Podman 5+ and Quadlet Orchestration Guide"
+sidebarTitle: "Rootless Podman"
+description: "Run Elasticsearch, Kibana, and Fleet Server as an unprivileged user with rootless Podman 5+ and systemd Quadlet unit files."
+---
+
+Rootless Podman runs containers entirely under your user account without requiring root privileges or a background daemon. When a container is compromised in rootless mode, the attacker's reach is bounded by your user's permissions rather than the full host system — a meaningful reduction in blast radius. This project uses rootless Podman 5+ as the default runtime for all local and WSL2 deployments, complemented by systemd Quadlet unit files that turn declarative container definitions into persistent user-level services.
+
+<Note>
+Rootless Podman 5+ is the recommended runtime for all local and WSL2 deployments in this project. Production multi-node deployments follow the same model, with systemd lingering ensuring services survive host reboots.
+</Note>
+
+## Why Rootless Podman
+
+Traditional container runtimes require a root-owned daemon (or run containers as root themselves). If anything in that chain is compromised, an attacker can pivot to full host control. Rootless Podman eliminates that attack surface in three key ways:
+
+- **No root daemon** — Podman runs containers as direct child processes of your shell or systemd user session. There is no socket owned by root listening for commands.
+- **User namespace remapping** — Your UID is mapped into the container's namespace. Files written inside the container are owned by your user on the host, not by root.
+- **Native systemd integration via Quadlet** — Quadlet converts `.container`, `.volume`, `.pod`, and `.network` definition files into unprivileged user-level systemd units at daemon reload time, with no sudo required to start, stop, or enable services.
+
+<Warning>
+Rootless mode significantly reduces risk but does not eliminate it entirely. Kernel-level vulnerabilities, user-namespace flaws, and overly permissive host-path mounts can still be exploited. Layer rootless Podman with read-only root filesystems, minimal Wolfi images, and strict host directory permissions for a strong defense-in-depth posture.
+</Warning>
+
+## Required Environment Variables
+
+Before running any `systemctl --user` command or Ansible task that manages rootless containers, ensure these two variables are set in your shell session. Without them, the unprivileged D-Bus socket and systemd user manager are unreachable:
+
+```bash
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+```
+
+- **`XDG_RUNTIME_DIR`** — Points to the directory where your user's runtime files live, including the systemd user socket and Podman's control socket. For most systems this resolves to `/run/user/1000`.
+- **`DBUS_SESSION_BUS_ADDRESS`** — Directs the D-Bus client to the user-level message bus. Ansible's `systemd` module and `systemctl --user` both require this to locate your session.
+
+Add these exports to your `~/.bashrc` or `~/.profile` to make them persistent across sessions.
+
+## Enabling User Lingering
+
+By default, your user's systemd session starts at login and stops at logout. Any containers managed by that session stop too. To keep Elasticsearch, Kibana, and Fleet Server running continuously — including across reboots — enable systemd lingering for your user:
+
+```bash
+sudo loginctl enable-linger $USER
+```
+
+This creates the file `/var/lib/systemd/linger/<username>`, which instructs systemd to start your user session at boot and keep it alive even when you are not logged in. The Ansible playbooks automate this step during Phase 0 host preparation.
+
+## UID Namespace Mapping with `keep-id`
+
+By default, rootless Podman maps the container's internal non-root UIDs (such as UID `1000` used by the Elasticsearch process) to high-range sub-UIDs on the host (such as UID `102000`). This means volume-mounted directories owned by your host user appear as owned by a stranger inside the container, causing write failures.
+
+The project solves this by specifying `UserNS=keep-id:uid=1000,gid=1000` in Quadlet container unit files:
+
+```ini
+UserNS=keep-id:uid=1000,gid=1000
+```
+
+This maps UID `1000` inside the container directly to UID `1000` on the host — your normal user account. Files written by the Elasticsearch process inside the container will be owned by your user on the host filesystem. You can back them up, inspect them, and manage permissions without any privilege escalation.
+
+## Quadlet Unit Files
+
+Quadlet is the declarative service management layer built into Podman 5+. You place `.container`, `.kube`, `.volume`, or `.network` files in `~/.config/containers/systemd/`, and Podman generates the corresponding systemd unit files the next time the user daemon reloads. This gives you a version-controllable, human-readable service definition that integrates natively with `systemctl`.
+
+## Starting Elasticsearch as a Rootless Service
+
+Follow these steps to deploy Elasticsearch (or any stack component) as a persistent rootless systemd service using Quadlet:
+
+<Steps>
+  <Step title="Place the Quadlet unit file">
+    Copy your `.container` or `.kube` Quadlet definition to the user-level systemd path:
+
+    ```bash
+    cp elasticsearch.container ~/.config/containers/systemd/
+    ```
+
+    The Ansible playbooks generate and place these files automatically during Phase 1 provisioning.
+  </Step>
+  <Step title="Reload the user daemon">
+    Tell systemd to scan the Quadlet directory and generate new unit files:
+
+    ```bash
+    systemctl --user daemon-reload
+    ```
+  </Step>
+  <Step title="Start the service">
+    Start the generated unit:
+
+    ```bash
+    systemctl --user start elasticsearch.service
+    ```
+  </Step>
+  <Step title="Enable auto-start on login">
+    Configure the service to start automatically when your user session begins (requires lingering to survive reboots):
+
+    ```bash
+    systemctl --user enable elasticsearch.service
+    ```
+  </Step>
+  <Step title="Verify the service">
+    Check that the container is running and review recent log output:
+
+    ```bash
+    systemctl --user status elasticsearch.service
+    journalctl --user -u elasticsearch.service -f
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<Accordion title="Troubleshooting: Failed to connect to bus">
+  This error means `systemctl --user` cannot reach the D-Bus session socket. It almost always means user lingering is not enabled, or the required environment variables are missing from the current shell session.
+
+  Run the following to fix both issues:
+
+  ```bash
+  sudo loginctl enable-linger $USER
+  export XDG_RUNTIME_DIR=/run/user/$(id -u)
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+  ```
+
+  Then retry your `systemctl --user` command. If you are running inside a non-interactive context (such as an Ansible `become` block or a CI runner), verify that these variables are explicitly passed to the task environment.
+</Accordion>
+
+<Accordion title="Troubleshooting: Permission denied on volume mount">
+  If Elasticsearch logs show `Permission denied` errors on startup, the host data directory is not owned by the UID the container process expects. Elasticsearch runs as UID `1000` inside the container.
+
+  Fix the ownership with:
+
+  ```bash
+  sudo chown -R 1000:1000 /data/es01
+  ```
+
+  Replace `/data/es01` with your actual `data_dir` value if you have customised the `container_name` variable. With `UserNS=keep-id:uid=1000,gid=1000` in place, UID `1000` inside the container maps directly to your host user, so this ownership change also allows you to access the data directory without sudo.
+</Accordion>
+
+<Accordion title="Troubleshooting: Container exits immediately after start">
+  If the service starts but the container exits right away, check the journal for the specific error:
+
+  ```bash
+  journalctl --user -u elasticsearch.service --no-pager -n 50
+  ```
+
+  Common causes:
+  - `vm.max_map_count` is too low — Elasticsearch requires at least `262144`. Run `sudo sysctl -w vm.max_map_count=262144` or re-run Phase 0 of the Ansible playbooks.
+  - The data directory does not exist — ensure `/data/<container_name>` was created and has correct ownership before starting the service.
+  - `XDG_RUNTIME_DIR` is unset — the container runtime cannot initialise the rootless network namespace without it.
+</Accordion>

@@ -1,0 +1,203 @@
+---
+title: "Elasticsearch Setup and Configuration with Podman"
+sidebarTitle: "Elasticsearch"
+description: "Set up Elasticsearch 9.4.4 using the hardened Wolfi container image with Podman. Covers startup, credentials, SSL, and verification."
+---
+
+The `setup_elasticsearch.sh` script fully automates your Elasticsearch 9.4.4 deployment using Podman and the hardened Wolfi image. It handles dependency installation, data directory creation, container startup, credential generation, SSL certificate extraction, and an initial health check — so you get a secure, production-ready node with a single command.
+
+## What the Setup Script Does
+
+Run the script once and it walks through nine ordered steps to bring your Elasticsearch node online:
+
+<Steps>
+  <Step title="Install Podman and podman-compose">
+    The script checks whether `podman` and `podman-compose` are already present. If either is missing, it auto-detects your OS and installs them:
+
+    - **Debian / Ubuntu** — uses `apt-get`
+    - **Fedora / CentOS / RHEL / AlmaLinux / Rocky** — uses `dnf`
+
+    <Tip>
+      If you need Podman 5+ on Ubuntu 24.04 or 26.04, install it manually from the `home:alvistack` repository before running the script. The script will detect and use your pre-installed version automatically.
+    </Tip>
+  </Step>
+
+  <Step title="Create the data directory">
+    Creates `/data/es01` on the host and sets ownership to UID 1000 — the user Elasticsearch runs as inside the container.
+
+    ```bash
+    sudo mkdir -p /data/es01
+    sudo chown -R 1000:1000 /data/es01
+    ```
+
+    <Warning>
+      If `/data/es01` already exists the script aborts immediately to protect any existing data. Back up the directory, remove or relocate it, then re-run the script.
+    </Warning>
+  </Step>
+
+  <Step title="Pull the Elasticsearch Wolfi image">
+    Downloads the official hardened image from the Elastic registry:
+
+    ```bash
+    docker.elastic.co/elasticsearch/elasticsearch-wolfi:9.4.4
+    ```
+  </Step>
+
+  <Step title="Optionally verify the image with cosign">
+    If `cosign` is installed, the script downloads the Elastic public key from `artifacts.elastic.co/cosign.pub` and verifies the image signature before starting the container. If `cosign` is not found, this step is skipped with an informational message.
+  </Step>
+
+  <Step title="Generate podman-compose.yml and start the container">
+    Writes `elk-wolfi/podman-compose.yml` (see [Container Configuration](#container-configuration) below) and starts Elasticsearch in detached mode:
+
+    ```bash
+    cd elk-wolfi && podman-compose up -d
+    ```
+  </Step>
+
+  <Step title="Reset the elastic password and save credentials">
+    Waits up to 60 seconds for the container to become healthy, then resets the built-in `elastic` user password and saves it to `elk-wolfi/temp_credentials.txt`.
+  </Step>
+
+  <Step title="Copy the SSL CA certificate">
+    Extracts the HTTPS CA certificate from the running container and places it at `elk-wolfi/certs/http_ca.crt` so you can trust it in `curl` and client applications.
+  </Step>
+
+  <Step title="Make an initial REST API call">
+    Runs two `curl` verification calls against `https://localhost:9200` — one using a Base64-encoded `Authorization` header and one using the `-u` flag — to confirm Elasticsearch is healthy and responding.
+  </Step>
+
+  <Step title="Generate the Kibana enrollment token">
+    Calls `elasticsearch-create-enrollment-token -s kibana` inside the container and appends the token to `elk-wolfi/temp_credentials.txt` for use during Kibana setup.
+  </Step>
+</Steps>
+
+---
+
+## Container Configuration
+
+The script writes the following `podman-compose.yml` into the `elk-wolfi/` directory before starting the container. Review it to understand the default resource limits, network bindings, and volume mount.
+
+```yaml
+version: '3.8'
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch-wolfi:9.4.4
+    container_name: es01
+    networks:
+      - elastic
+    ports:
+      - "127.0.0.1:9200:9200"
+    environment:
+      - discovery.type=single-node
+    mem_limit: 1GB
+    volumes:
+      - "/data/es01:/usr/share/elasticsearch/data"
+networks:
+  elastic:
+    driver: bridge
+```
+
+<Note>
+  The `mem_limit: 1GB` setting is suitable for development and single-node evaluation. Increase this value before deploying to a production workload.
+</Note>
+
+---
+
+## Running the Setup
+
+Make the script executable, then run it from the repository root:
+
+```bash
+chmod +x setup_elasticsearch.sh
+./setup_elasticsearch.sh
+```
+
+The script prints progress messages at each step. When it finishes you will see the Elasticsearch URL, the generated password, and the Kibana enrollment token.
+
+---
+
+## Accessing Elasticsearch
+
+Elasticsearch listens on HTTPS and uses a self-signed CA certificate. Use the CA cert for all `curl` requests.
+
+<Steps>
+  <Step title="Retrieve the elastic password">
+    The generated password is stored in `elk-wolfi/temp_credentials.txt`. Extract it with:
+
+    ```bash
+    grep 'Elastic password' elk-wolfi/temp_credentials.txt
+    ```
+  </Step>
+
+  <Step title="Run a health check">
+    Substitute `<password>` with the value you just retrieved:
+
+    ```bash
+    curl --cacert elk-wolfi/certs/http_ca.crt \
+         -u elastic:<password> \
+         https://localhost:9200
+    ```
+
+    A successful response includes `"You Know, for Search"` in the JSON body.
+  </Step>
+</Steps>
+
+<Note>
+  All connections to Elasticsearch use HTTPS. Always pass `--cacert elk-wolfi/certs/http_ca.crt` in your `curl` commands, or configure your HTTP client to trust this CA.
+</Note>
+
+---
+
+## Bind Address
+
+By default, Elasticsearch binds to `127.0.0.1`, making it reachable only from the local machine. To expose Elasticsearch on a network interface — for example, to allow connections from other hosts — set the `BIND_ADDRESS` environment variable before running the script:
+
+```bash
+BIND_ADDRESS=0.0.0.0 ./setup_elasticsearch.sh
+```
+
+<Warning>
+  Binding to `0.0.0.0` exposes the Elasticsearch API on all network interfaces. Ensure your firewall rules restrict access appropriately before changing this setting.
+</Warning>
+
+---
+
+## Managing the Container
+
+Use the following commands to control the Elasticsearch container after the initial setup:
+
+<CodeGroup>
+
+```bash Start
+cd elk-wolfi && podman-compose up -d
+```
+
+```bash Stop
+cd elk-wolfi && podman-compose down
+```
+
+```bash View logs
+podman logs es01
+```
+
+```bash Check status
+podman ps
+```
+
+</CodeGroup>
+
+---
+
+## Data Directory
+
+<Warning>
+  All Elasticsearch indices and cluster state are stored in `/data/es01` on the host. Deleting this directory permanently and irreversibly destroys all Elasticsearch data. Always back up this directory before performing maintenance or re-running the setup script.
+</Warning>
+
+To clean up the full deployment — including the data volume — stop the container first, then remove the directory:
+
+```bash
+cd elk-wolfi && podman-compose down
+sudo rm -rf /data/es01
+```

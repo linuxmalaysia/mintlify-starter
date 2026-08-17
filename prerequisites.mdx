@@ -1,0 +1,125 @@
+---
+title: "Prerequisites for Running Elastic Stack on Podman"
+sidebarTitle: "Prerequisites"
+description: "System requirements and software dependencies needed before deploying Elasticsearch, Kibana, and Fleet Server with Podman on Linux or WSL2."
+---
+
+Before you run the setup scripts or Ansible playbooks, confirm that your host meets the minimum hardware specifications and has the required software installed. The Elastic Stack is resource-intensive: under-provisioned hosts will cause containers to crash or fail health checks, leading to a broken deployment. Work through each section below and resolve any gaps before moving on to the [Quickstart](/quickstart).
+
+## System requirements
+
+The values below represent the minimums for a single-node deployment. A 3-node cluster — whether on dedicated VMs or inside WSL2 — requires proportionally more resources.
+
+| Resource | Minimum | Recommended (3-node) |
+|----------|---------|----------------------|
+| **RAM** | 8 GB | 16 GB |
+| **CPU cores** | 4 | 8 |
+| **Disk space** | 20 GB free | 40 GB free |
+| **OS** | Linux (any supported distro) or WSL2 | AlmaLinux 10 / Ubuntu 26.04 |
+
+## Software requirements
+
+You need Podman and `podman-compose` installed before running any setup script. If these are not present, the scripts install them automatically — but you can also install them manually using the commands below.
+
+<Tabs>
+  <Tab title="AlmaLinux / RHEL">
+    Use `dnf` to install Podman and `podman-compose` from the default or EPEL repository.
+
+    ```bash
+    sudo dnf install -y podman podman-compose
+    ```
+
+    Verify the installation:
+
+    ```bash
+    podman --version
+    podman-compose --version
+    ```
+  </Tab>
+  <Tab title="Ubuntu / Debian">
+    Use `apt-get` to install Podman and `podman-compose` from the distribution repository.
+
+    ```bash
+    sudo apt-get install -y podman podman-compose
+    ```
+
+    Verify the installation:
+
+    ```bash
+    podman --version
+    podman-compose --version
+    ```
+  </Tab>
+</Tabs>
+
+### Podman 5+ on Ubuntu
+
+Standard Ubuntu repositories may ship an older version of Podman. If you need Podman 5+ — required for full rootless networking support — add the `home:alvistack` repository from the OpenSUSE Build Service before installing. The commands below are for Ubuntu 26.04; replace `xUbuntu_26.04` with your release if you are on an earlier version.
+
+```bash
+# 1. Download and dearmor the GPG key
+curl -fsSL https://download.opensuse.org/repositories/home:/alvistack/xUbuntu_26.04/Release.key \
+  | gpg --dearmor \
+  | sudo tee /etc/apt/keyrings/home_alvistack.gpg > /dev/null
+
+# 2. Add the verified repository source
+echo "deb [signed-by=/etc/apt/keyrings/home_alvistack.gpg] \
+  http://download.opensuse.org/repositories/home:/alvistack/xUbuntu_26.04/ /" \
+  | sudo tee /etc/apt/sources.list.d/home-alvistack.list
+
+# 3. Update APT cache and install Podman 5+
+sudo apt-get update
+sudo apt-get install -y podman podman-compose
+```
+
+The setup scripts automatically detect and use a pre-installed Podman 5+ environment when present.
+
+## WSL2 requirements
+
+If you are deploying on Windows 11 with WSL2, you need the following in addition to the Linux requirements above.
+
+- **Windows version:** Windows 11 (WSL2 kernel 5.15 or later recommended)
+- **RAM:** 16 GB minimum to support the 3-node topology inside WSL2
+- **WSL2 distribution:** Ubuntu 26.04 or AlmaLinux 10
+
+Create or edit `%UserProfile%\.wslconfig` in Windows to allocate sufficient resources to WSL2:
+
+```ini
+[wsl2]
+memory=12GB
+processors=8
+```
+
+After saving the file, restart WSL2 from PowerShell for the changes to take effect:
+
+```powershell
+wsl --shutdown
+```
+
+## Kernel tuning
+
+Elasticsearch requires the `vm.max_map_count` kernel parameter to be set to at least `262144`. Without this, the Elasticsearch container exits with a bootstrap check failure. Apply the setting immediately with the following command:
+
+```bash
+sudo sysctl -w vm.max_map_count=262144
+```
+
+To make the setting persist across reboots, add it to `/etc/sysctl.conf`:
+
+```bash
+echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.conf
+```
+
+<Warning>
+  WSL2 users: the sysctl change applies to the current WSL2 session only. You will need to re-apply it after each `wsl --shutdown` cycle, or automate it in your WSL2 startup configuration.
+</Warning>
+
+## Optional: cosign for image verification
+
+If `cosign` is installed on your system, the Elasticsearch setup script automatically downloads the official Elastic public key and verifies the cryptographic signature of the Wolfi image before starting the container. This step is optional but strongly recommended for production deployments.
+
+Install `cosign` by following the [official Sigstore cosign installation guide](https://docs.sigstore.dev/cosign/system_config/installation/). Once installed, no further configuration is needed — the setup script detects and uses it automatically.
+
+<Note>
+  Once you have verified all prerequisites, head over to the [Quickstart](/quickstart) to clone the repository and run your first deployment.
+</Note>

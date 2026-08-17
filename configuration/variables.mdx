@@ -1,0 +1,117 @@
+---
+title: "Configuration Variables Reference for Elastic Stack on Podman"
+sidebarTitle: "Variables"
+description: "Complete reference for all configurable variables in ansible/group_vars/all.yml that control the Elastic Stack Podman deployment."
+---
+
+All deployment settings for Elastic Stack on Podman are controlled through a single file — `ansible/group_vars/all.yml`. Every variable in this file has a sensible default, and any of them can be overridden at runtime by passing `-e "variable=value"` flags directly to `ansible-playbook`, so you never need to edit the file itself for one-off changes.
+
+## Deployment Selection
+
+The `deployment_option` variable is the primary switch that governs bind addresses, container names, and topology for the entire stack. Set it before running any playbook.
+
+<ParamField path="deployment_option" type="string" default="wsl2">
+  Controls the deployment topology and default bind addresses for all services.
+
+  | Value | Environment | Bind Address |
+  |---|---|---|
+  | `wsl2` | Windows 11 WSL2, localhost only | `127.0.0.1` |
+  | `single_node` | Single VM or bare-metal host | `0.0.0.0` |
+  | `multi_node` | Multiple dedicated hosts | `0.0.0.0` |
+  | `jules` | Google Jules automated environment | `127.0.0.1` |
+</ParamField>
+
+<Tip>
+  Start with `wsl2` for local development and switch to `single_node` or `multi_node` only when you are ready to expose services on a network interface.
+</Tip>
+
+## Network and Binding Variables
+
+These variables determine which IP address each service listens on. Their defaults are derived automatically from your `deployment_option`, but you can override any of them independently.
+
+| Variable | Default | Description |
+|---|---|---|
+| `elasticsearch_bind_address` | `127.0.0.1` (wsl2/jules) / `0.0.0.0` (others) | Elasticsearch listener address for port 9200 |
+| `kibana_bind_address` | `127.0.0.1` (wsl2/jules) / `0.0.0.0` (others) | Kibana listener address for port 5601 |
+| `fleet_server_bind_address` | `127.0.0.1` (wsl2/jules) / `0.0.0.0` (others) | Fleet Server listener address for port 8220 |
+
+<Note>
+  Overriding a single bind address variable does not change the others. If you need all three services on a custom address, override each variable explicitly.
+</Note>
+
+## Stack Version and Image Variables
+
+These variables pin every component to a specific Elastic Stack release and point to the hardened Wolfi variants of each image.
+
+| Variable | Default | Description |
+|---|---|---|
+| `elk_version` | `9.4.4` | Elastic Stack version applied to all components |
+| `elasticsearch_image` | `docker.elastic.co/elasticsearch/elasticsearch-wolfi:9.4.4` | Full Elasticsearch image reference including tag |
+| `kibana_image_name` | `docker.elastic.co/kibana/kibana-wolfi` | Kibana image base name (version tag appended at runtime) |
+| `fleet_server_image_name` | `docker.elastic.co/elastic-agent/elastic-agent-complete-wolfi` | Fleet Server image base name (version tag appended at runtime) |
+
+<Note>
+  The `elasticsearch_image` variable includes the full tag, while `kibana_image_name` and `fleet_server_image_name` are base names. The playbook appends `elk_version` to the base names automatically at deploy time.
+</Note>
+
+## Container and Network Variables
+
+These variables control the names assigned to running containers and the Podman network that connects them.
+
+| Variable | Default | Description |
+|---|---|---|
+| `container_name` | `dsom-persistence-es-node-01` (wsl2) / `es01` (others) | Elasticsearch container name |
+| `kibana_container_name` | `dsom-kibana-kibana-local` (wsl2) / `kib01` (others) | Kibana container name |
+| `fleet_server_container_name` | `fleet-server` | Fleet Server container name |
+| `kibana_port` | `5601` | Kibana web UI port |
+| `fleet_server_port` | `8220` | Fleet Server enrollment and API port |
+| `network_name` | `elk-wolfi_elastic` | Podman network that connects all stack containers |
+| `compose_project_name` | `elk-wolfi` | Podman Compose project name (also used as network prefix) |
+
+## Path Variables
+
+These variables define where working files, certificates, and data volumes are created on the host.
+
+| Variable | Default | Description |
+|---|---|---|
+| `elk_dir` | `<project_dir>/elk-wolfi` | Working directory for Compose files, certs, and credentials |
+| `cert_dir` | `<elk_dir>/certs` | Directory where the Elasticsearch CA certificate is stored |
+| `data_dir` | `/data/<container_name>` | Host path mounted as the Elasticsearch data volume |
+| `temp_credentials_file` | `<elk_dir>/temp_credentials.txt` | File where auto-generated passwords and tokens are written |
+
+## Overriding Variables at Runtime
+
+### Ansible Playbook Overrides
+
+Pass `-e` flags to override any variable for a single run without modifying `group_vars/all.yml`:
+
+```bash
+ansible-playbook -i inventory/hosts.yml ansible/main.yml \
+  -e "deployment_option=single_node" \
+  -e "elk_version=9.4.4" \
+  -e "kibana_port=5602"
+```
+
+<Accordion title="Fleet Server token override">
+  The Fleet Server service token and policy ID are intentionally left blank in `group_vars/all.yml` so you can supply them at deployment time without storing secrets in the repository:
+
+  ```bash
+  ansible-playbook -i inventory/hosts.yml ansible/main.yml \
+    -e "fleet_server_service_token=YOUR_TOKEN_HERE" \
+    -e "fleet_server_policy_id=YOUR_POLICY_ID_HERE"
+  ```
+</Accordion>
+
+### Shell Script Overrides
+
+If you are using the standalone shell scripts (`setup_elasticsearch.sh`, `setup_kibana.sh`) instead of Ansible, set the `BIND_ADDRESS` environment variable before running the script:
+
+```bash
+BIND_ADDRESS=0.0.0.0 ./setup_elasticsearch.sh
+```
+
+The scripts read `BIND_ADDRESS` with a fallback to `127.0.0.1`, so the default is always safe for local use.
+
+<Warning>
+  Setting `BIND_ADDRESS=0.0.0.0` exposes Elasticsearch on every network interface on the host. Confirm your firewall rules are in place before running the script with this setting.
+</Warning>

@@ -1,0 +1,169 @@
+---
+title: "Deploy Elastic Stack on Windows 11 WSL2"
+sidebarTitle: "WSL2 Setup"
+description: "Step-by-step guide to deploying Elasticsearch, Kibana, and Fleet Server on Windows 11 WSL2 using Podman and Wolfi images."
+---
+
+This guide walks you through deploying the full Elastic Stack—Elasticsearch, Kibana, and Fleet Server—inside a Windows 11 WSL2 Linux environment using Podman and hardened Wolfi container images. You will install and configure a WSL2 distribution, clone the toolkit, and run the automated setup scripts, all without leaving your Windows machine.
+
+<Note>
+  **Before you begin**, confirm that your system meets the following prerequisites:
+  - **Windows 11** with WSL2 feature enabled
+  - **16 GB RAM** or more (WSL2 will consume approximately 10 GB during cluster operation)
+  - A supported WSL2 Linux distribution: **Ubuntu 26.04** or **AlmaLinux 10**
+  - Network access to pull container images from Docker Hub
+</Note>
+
+## Installation Steps
+
+<Steps>
+  <Step title="Install WSL2 on Windows 11">
+    Open **PowerShell** as Administrator and install WSL2 with the Ubuntu 26.04 distribution:
+
+    ```powershell
+    # Install WSL2 with Ubuntu 26.04 (recommended)
+    wsl --install -d Ubuntu-26.04
+    ```
+
+    If you prefer AlmaLinux 10, list available distributions first, then install it:
+
+    ```powershell
+    # List all distributions available online
+    wsl --list --online
+
+    # Install AlmaLinux 10
+    wsl --install -d AlmaLinux-10
+    ```
+
+    After the installation finishes, Windows will prompt you to create a Linux username and password. Complete that setup before continuing.
+  </Step>
+
+  <Step title="Launch WSL2 and Install Git">
+    Open your newly installed distribution from the Start menu (search for **Ubuntu 26.04** or **AlmaLinux 10**). Inside the WSL2 terminal, install Git:
+
+    <Tabs>
+      <Tab title="Ubuntu 26.04">
+        ```bash
+        sudo apt-get update
+        sudo apt-get install -y git
+        ```
+      </Tab>
+      <Tab title="AlmaLinux 10">
+        ```bash
+        sudo dnf install -y git
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Clone the Repository Inside WSL2">
+    Clone the Elastic Stack on Podman toolkit into your WSL2 home directory:
+
+    ```bash
+    cd ~
+    git clone https://github.com/linuxmalaysia/podman-elastic-stack.git
+    cd podman-elastic-stack
+    ```
+
+    <Tip>
+      Keep the repository inside the WSL2 filesystem (under `/home/youruser/`) rather than on a Windows-mounted path like `/mnt/c/`. Native Linux paths give you significantly faster I/O performance.
+    </Tip>
+  </Step>
+
+  <Step title="Run the Setup Scripts">
+    Make the scripts executable, then run them in sequence. Elasticsearch must be fully started before you launch Kibana.
+
+    ```bash
+    # Make scripts executable
+    chmod +x setup_elasticsearch.sh setup_kibana.sh setup_fleet_server.sh
+
+    # 1. Start Elasticsearch
+    ./setup_elasticsearch.sh
+
+    # 2. Start Kibana (after Elasticsearch is healthy)
+    ./setup_kibana.sh
+
+    # 3. (Optional) Start Fleet Server
+    ./setup_fleet_server.sh
+    ```
+
+    Each script installs Podman and Podman Compose automatically if they are not already present, pulls the hardened Wolfi images, and writes credentials to `elk-wolfi/temp_credentials.txt`.
+
+    <Note>
+      Inside WSL2 the default bind address is `127.0.0.1`. Services are therefore reachable from Windows at `localhost` but are not exposed to other machines on your network. See the bind address note below to change this behaviour.
+    </Note>
+  </Step>
+
+  <Step title="Access Kibana from Your Windows Browser">
+    Once all containers are running, open any browser on your Windows host and navigate to:
+
+    ```
+    http://localhost:5601
+    ```
+
+    Log in with username `elastic` and the password printed at the end of `setup_elasticsearch.sh` (also stored in `elk-wolfi/temp_credentials.txt`).
+  </Step>
+</Steps>
+
+---
+
+## Running Playbooks Directly from PowerShell
+
+If you prefer to trigger the full Ansible-based deployment without opening a WSL2 terminal, you can drive it from PowerShell using the `wsl` command. Replace the path below with the actual location of your cloned repository inside WSL2.
+
+<Tabs>
+  <Tab title="Ubuntu 26.04">
+    ```powershell
+    wsl -d Ubuntu-26.04 bash -c "cd /home/youruser/podman-elastic-stack && ./run_playbooks.sh"
+    ```
+  </Tab>
+  <Tab title="AlmaLinux 10">
+    ```powershell
+    wsl -d AlmaLinux-10 bash -c "cd /home/youruser/podman-elastic-stack && ./run_playbooks.sh"
+    ```
+  </Tab>
+</Tabs>
+
+The `run_playbooks.sh` script calls `ansible-playbook` against the default `inventory/hosts.yml`, which targets `localhost` inside WSL2 and runs the full stack setup in one shot.
+
+---
+
+## Bind Address Configuration
+
+<Note>
+  By default, all three services (Elasticsearch on port 9200, Kibana on port 5601, and Fleet Server on port 8220) bind to `127.0.0.1`. This means they are accessible only from the local machine—i.e., from within WSL2 or via Windows `localhost` due to WSL2's built-in port forwarding.
+
+  To expose the services on all interfaces (for example, to make them reachable from other devices on your network), set the `BIND_ADDRESS` environment variable before running the scripts:
+
+  ```bash
+  export BIND_ADDRESS=0.0.0.0
+  ./setup_elasticsearch.sh
+  ```
+
+  Alternatively, set `deployment_option: "single_node"` in `ansible/group_vars/all.yml`, which automatically switches all bind addresses to `0.0.0.0`.
+</Note>
+
+---
+
+## What's Next
+
+<Tip>
+  If you want to simulate a production-grade distributed cluster entirely within WSL2—with three Elasticsearch nodes forming a quorum—follow the [3-Node Cluster on WSL2](/guides/wsl2-3node-cluster) guide.
+</Tip>
+
+<CardGroup cols={2}>
+  <Card
+    title="3-Node Cluster on WSL2"
+    icon="server"
+    href="/guides/wsl2-3node-cluster"
+  >
+    Run a full 3-node Elasticsearch cluster plus Kibana on a single WSL2 instance using Podman and Ansible.
+  </Card>
+  <Card
+    title="Single-Node Deployment"
+    icon="circle-dot"
+    href="/guides/single-node"
+  >
+    Deploy a self-contained single-node stack on a Linux VM or bare-metal server.
+  </Card>
+</CardGroup>

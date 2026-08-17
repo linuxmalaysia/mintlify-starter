@@ -1,0 +1,170 @@
+---
+title: "Upgrade Elastic Stack to a New Version with Podman"
+sidebarTitle: "Upgrade"
+description: "Step-by-step guide for upgrading your Elasticsearch, Kibana, and Fleet Server containers to a newer Elastic Stack version using Podman."
+---
+
+Upgrading your Elastic Stack involves pulling new hardened Wolfi images, updating the version variable in your configuration, and restarting containers in the correct order. Following a structured upgrade process protects your data and ensures that Elasticsearch, Kibana, and Fleet Server remain compatible with each other throughout the transition.
+
+<Warning>
+Always back up your Elasticsearch data **before** starting an upgrade. Your persistent data lives in `/data/<container_name>` (for example, `/data/es01`). A failed or interrupted upgrade without a backup can result in data loss.
+</Warning>
+
+## Pre-Upgrade Checklist
+
+Complete each of these steps before you change any version numbers or restart containers.
+
+<Steps>
+  <Step title="Verify the currently running version">
+    Query the Elasticsearch API to confirm which version is active:
+
+    ```bash
+    curl --cacert elk-wolfi/certs/http_ca.crt \
+      -u elastic:<password> \
+      https://localhost:9200 | grep number
+    ```
+  </Step>
+
+  <Step title="Back up your data directory">
+    Copy the Elasticsearch data directory to a safe location:
+
+    ```bash
+    sudo cp -r /data/es01 /data/es01.backup
+    ```
+
+    Repeat this for any additional nodes (for example, `/data/es02`, `/data/es03`).
+  </Step>
+
+  <Step title="Check the Elastic compatibility matrix">
+    Review the [Elastic Support Matrix](https://www.elastic.co/support/matrix) for your target version to confirm that your host OS, Podman version, and any integrations are all compatible.
+  </Step>
+
+  <Step title="Note your current elk_version">
+    Open `ansible/group_vars/all.yml` and record the current value of `elk_version`. You will need this if you need to roll back.
+
+    ```yaml
+    elk_version: "9.4.4"   # note this before changing anything
+    ```
+  </Step>
+</Steps>
+
+<Note>
+Upgrade **one minor version at a time** — do not skip versions. For example, upgrade from 8.17.x → 8.19.x → 9.x rather than jumping directly from 8.17.x to 9.x. Always follow [Elastic's official upgrade path guidance](https://www.elastic.co/guide/en/elastic-stack/current/upgrading-elastic-stack.html).
+</Note>
+
+---
+
+## Upgrade Using Ansible
+
+The Ansible workflow updates images and restarts all services in a single coordinated run.
+
+<Steps>
+  <Step title="Update elk_version in group_vars">
+    Open `ansible/group_vars/all.yml` and set `elk_version` to your target version:
+
+    ```yaml
+    elk_version: "9.5.0"
+    ```
+  </Step>
+
+  <Step title="Stop the running containers">
+    Bring down Elasticsearch, Kibana, and Fleet Server before pulling the new images:
+
+    ```bash
+    podman stop es01 kib01 fleet-server
+    ```
+  </Step>
+
+  <Step title="Run the playbooks">
+    Execute the master playbook runner. It pulls the new Wolfi images, applies updated configuration, and starts all services:
+
+    ```bash
+    ./run_playbooks.sh
+    ```
+  </Step>
+
+  <Step title="Verify the new version is running">
+    Query the Elasticsearch version endpoint again to confirm the upgrade succeeded:
+
+    ```bash
+    curl --cacert elk-wolfi/certs/http_ca.crt \
+      -u elastic:<password> \
+      https://localhost:9200 | grep number
+    ```
+
+    The `number` field should reflect your target version (for example, `"9.5.0"`).
+  </Step>
+</Steps>
+
+---
+
+## Upgrade Using Shell Scripts
+
+Use this approach if you are running the standalone shell scripts rather than Ansible playbooks.
+
+<Steps>
+  <Step title="Edit ELK_VERSION in each setup script">
+    Open `setup_elasticsearch.sh` and `setup_kibana.sh` in a text editor and update the version variable near the top of each file:
+
+    ```bash
+    ELK_VERSION="9.5.0"
+    ```
+  </Step>
+
+  <Step title="Stop the running containers">
+    ```bash
+    podman stop es01 kib01
+    ```
+  </Step>
+
+  <Step title="Re-run the setup scripts">
+    Each script pulls the updated Wolfi image and restarts its container:
+
+    ```bash
+    ./setup_elasticsearch.sh
+    ./setup_kibana.sh
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Post-Upgrade Verification
+
+After all containers are back up, run these checks to confirm a healthy deployment.
+
+<CardGroup cols={3}>
+  <Card title="Cluster Health" icon="heart-pulse">
+    Confirm Elasticsearch reports a `green` or `yellow` status:
+
+    ```bash
+    curl --cacert elk-wolfi/certs/http_ca.crt \
+      -u elastic:<password> \
+      https://localhost:9200/_cluster/health?pretty
+    ```
+  </Card>
+
+  <Card title="Kibana UI" icon="browser">
+    Open [http://localhost:5601](http://localhost:5601) in your browser and confirm Kibana loads and can reach Elasticsearch without errors.
+  </Card>
+
+  <Card title="Fleet Agents" icon="shield-check">
+    If the Fleet Server version changed, re-enroll your Fleet Agents. In Kibana, navigate to **Fleet → Settings → Generate service token** and update each agent.
+  </Card>
+</CardGroup>
+
+---
+
+## 2-Week Upgrade Plan
+
+For major-version upgrades (for example, 8.x → 9.x), use this phased timeline to reduce risk and ensure each component is validated before moving on.
+
+| Phase | Timeframe | Key Tasks |
+|---|---|---|
+| **Preparation** | Pre-work (Week 0) | Back up all data, run Kibana Upgrade Assistant, review release notes, test in a lower environment, and pull target images |
+| **Core Upgrade** | Week 1 | Upgrade Elasticsearch nodes one at a time, verify cluster health at each step, then upgrade Kibana and Fleet Server |
+| **Components & Sign-off** | Week 2 | Upgrade ML integrations and non-ML integrations, verify ingest pipelines, finalize agent synchronization, and complete sign-off |
+
+<Tip>
+If you are upgrading from the 8.x branch to 9.x, you must first upgrade your cluster to the latest **8.19.x** patch release. Upgrading directly from 8.17.x or 8.18.x to 9.x is not supported by Elastic.
+</Tip>

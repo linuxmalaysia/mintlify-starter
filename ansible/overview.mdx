@@ -1,0 +1,92 @@
+---
+title: "Automate Elastic Stack Deployment with Ansible"
+sidebarTitle: "Overview"
+description: "Use Ansible playbooks to automate idempotent, declarative deployment of Elasticsearch, Kibana, and Fleet Server with Podman."
+---
+
+The Ansible automation layer gives you a declarative, repeatable way to deploy Elasticsearch, Kibana, and Fleet Server across any supported Linux environment — from a single WSL2 workstation to a multi-VM cluster. Instead of running bash scripts by hand, you define your desired state once in variables and let Ansible converge the system to that state every time, safely and consistently.
+
+## Why Ansible Over Bash Scripts
+
+Bash scripts are straightforward, but they become fragile at scale. Ansible brings several guarantees that raw scripts cannot:
+
+- **Idempotent execution** — Run the same playbook multiple times without creating duplicate containers, conflicting networks, or broken configurations. Ansible checks the current state before acting.
+- **Declarative state management** — You describe *what* you want (a running Elasticsearch container at version 9.4.4), not *how* to get there step by step.
+- **Credential obfuscation** — Sensitive tasks use `no_log: true`, preventing passwords and tokens from appearing in playbook output or logs.
+- **Multi-host support** — Target a single localhost or an entire inventory of remote machines with the same playbook, no modifications required.
+
+## Ansible Directory Structure
+
+The `ansible/` directory contains everything needed to deploy the full Elastic Stack:
+
+```text
+ansible/
+├── group_vars/
+│   └── all.yml         # Global variables
+├── main.yml            # Primary orchestrator
+├── setup_elasticsearch.yml
+├── setup_kibana.yml
+└── setup_fleet_server.yml
+```
+
+- **`group_vars/all.yml`** — Defines versions, image names, ports, bind addresses, and all other tuneable defaults used across every playbook.
+- **`main.yml`** — Imports the three setup playbooks in sequence: Elasticsearch → Kibana → Fleet Server.
+- **`setup_elasticsearch.yml`** — Pulls the Wolfi Elasticsearch image, prepares data directories, generates compose configuration, and retrieves the initial `elastic` password.
+- **`setup_kibana.yml`** — Connects Kibana to the running Elasticsearch cluster and starts the Kibana container.
+- **`setup_fleet_server.yml`** — Registers and starts the Fleet Server agent using your service token and policy ID.
+
+## Quick Start
+
+First, make sure Ansible is installed on the machine where you will run the playbooks:
+
+```bash
+pip install ansible
+```
+
+Then run the entire stack deployment with a single command from the repository root:
+
+```bash
+./run_playbooks.sh
+```
+
+The `run_playbooks.sh` script automatically uses `inventory/hosts.yml` as the default inventory unless you supply the `-i` flag yourself. It also verifies that `ansible-playbook` is available before executing anything.
+
+### Custom Inventory
+
+To target a different host group — for example, a three-node WSL2 cluster — pass your inventory file explicitly:
+
+```bash
+./run_playbooks.sh -i inventory/hosts.wsl.3node.yml
+```
+
+Any additional arguments you pass are forwarded directly to `ansible-playbook`, so you can also inject extra variables:
+
+```bash
+./run_playbooks.sh -e "deployment_option=single_node"
+```
+
+## Deployment Options
+
+The `deployment_option` variable in `ansible/group_vars/all.yml` controls how the stack binds to the network. Set it to match your environment before running the playbooks.
+
+| Option | Use Case | Bind Address |
+|---|---|---|
+| `wsl2` | Windows 11 WSL2 local development | `127.0.0.1` |
+| `single_node` | Single VM or bare metal server | `0.0.0.0` |
+| `multi_node` | Multiple dedicated hosts or VMs | `0.0.0.0` |
+| `jules` | Google Jules sandbox environment | `127.0.0.1` |
+
+<Note>
+The `wsl2` and `jules` options bind services to `127.0.0.1`, keeping them accessible only from the local machine. The `single_node` and `multi_node` options bind to `0.0.0.0`, exposing services on all network interfaces — make sure your firewall rules are in place before using these in production.
+</Note>
+
+## Explore Further
+
+<CardGroup cols={2}>
+  <Card title="Playbook Reference" icon="book" href="/ansible/playbooks">
+    Browse the full playbook map, key variables, and runtime override examples for every component in the stack.
+  </Card>
+  <Card title="Rootless Podman" icon="shield" href="/ansible/rootless-podman">
+    Understand how Podman runs containers without root, and how Quadlet unit files integrate with systemd for persistent services.
+  </Card>
+</CardGroup>

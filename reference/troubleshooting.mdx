@@ -1,0 +1,230 @@
+---
+title: "Troubleshooting Common Issues with Elastic Stack on Podman"
+sidebarTitle: "Troubleshooting"
+description: "Solutions to common problems when deploying or running Elasticsearch, Kibana, and Fleet Server with Podman on Linux or WSL2."
+---
+
+This guide covers the most common issues you may encounter when deploying or operating the Elastic Stack on Podman, along with clear steps to diagnose and resolve each one. Start with the quick diagnostic commands below to gather context before diving into a specific issue.
+
+## Quick Diagnostic Commands
+
+Run these commands first to get an overview of your deployment's current state.
+
+```bash
+# Check running containers
+podman ps -a
+
+# View Elasticsearch logs
+podman logs es01
+
+# View Kibana logs
+podman logs kib01
+
+# Check Elasticsearch health
+curl --cacert elk-wolfi/certs/http_ca.crt \
+  -u elastic:<password> \
+  https://localhost:9200/_cluster/health?pretty
+```
+
+---
+
+## Common Issues
+
+<Accordion title="Elasticsearch container exits immediately">
+  When the `es01` container stops right after starting, the most common causes are an insufficient `vm.max_map_count`, a data directory permission problem, or a memory limit that is too low.
+
+  **1. Check the container logs for the exact error:**
+
+  ```bash
+  podman logs es01
+  ```
+
+  **2. Raise `vm.max_map_count` (most common cause):**
+
+  Elasticsearch requires this kernel parameter to be at least `262144`. Apply it immediately with:
+
+  ```bash
+  sudo sysctl -w vm.max_map_count=262144
+  ```
+
+  To persist the setting across reboots, add `vm.max_map_count=262144` to `/etc/sysctl.conf`.
+
+  **3. Fix data directory permissions:**
+
+  Elasticsearch runs as UID/GID `1000` inside the container. Ensure your host data directory is owned correctly:
+
+  ```bash
+  sudo chown -R 1000:1000 /data/es01
+  ```
+
+  **4. Increase the memory limit:**
+
+  The default memory limit in `podman-compose.yml` is 1 GB. If your workload requires more, open `podman-compose.yml` and increase the `mem_limit` value (for example, `mem_limit: 2g`), then restart the container.
+</Accordion>
+
+<Accordion title="Kibana cannot connect to Elasticsearch">
+  Kibana logs a connection error on startup when it cannot reach the Elasticsearch container on the `elastic` network.
+
+  **1. Confirm Elasticsearch is running:**
+
+  ```bash
+  podman ps | grep es01
+  ```
+
+  **2. Verify the Podman network exists:**
+
+  ```bash
+  podman network ls | grep elastic
+  ```
+
+  If the network is missing, re-run `setup_elasticsearch.sh` to recreate it.
+
+  **3. Check `kibana.yml` for the correct Elasticsearch address:**
+
+  The Kibana configuration must point to the Elasticsearch container's IP on the `elastic` network. Retrieve the current IP with:
+
+  ```bash
+  podman inspect es01 | grep IPAddress
+  ```
+
+  Update `kibana.yml` to use this IP if it does not match.
+</Accordion>
+
+<Accordion title="Permission denied on /data directory">
+  The setup scripts create subdirectories under `/data` and require write access on behalf of UID `1000`.
+
+  Create the directory and assign the correct ownership before running the script:
+
+  ```bash
+  sudo mkdir -p /data/es01
+  sudo chown -R 1000:1000 /data/es01
+  ```
+
+  If you have multiple Elasticsearch nodes, repeat this for each data directory (for example, `/data/es02`, `/data/es03`).
+</Accordion>
+
+<Accordion title="Data directory already exists error from setup script">
+  The setup scripts intentionally abort when `/data/es01` already exists. This is a safety check to prevent accidentally overwriting an existing Elasticsearch cluster.
+
+  If you are doing a fresh installation and want to discard the existing data, remove the directory first:
+
+  ```bash
+  sudo rm -rf /data/es01
+  ```
+
+  <Warning>
+    This command **permanently deletes all Elasticsearch data** stored in that directory, including indices, snapshots stored locally, and configuration. Ensure you have a backup before proceeding.
+  </Warning>
+</Accordion>
+
+<Accordion title="WSL2: services not accessible from Windows browser">
+  By default, `BIND_ADDRESS` is set to `127.0.0.1`, which restricts access to connections originating from within the WSL2 instance itself.
+
+  **Windows 11 automatic forwarding:**
+
+  In most Windows 11 configurations, WSL2 localhost port forwarding works automatically — try `http://localhost:9200` and `http://localhost:5601` in your Windows browser first.
+
+  **Explicit 0.0.0.0 binding:**
+
+  If the default does not work, run the setup script with an explicit bind address:
+
+  ```bash
+  BIND_ADDRESS=0.0.0.0 ./setup_elasticsearch.sh
+  ```
+
+  <Note>
+    Binding to `0.0.0.0` exposes the services on all network interfaces. Use this only on a trusted local network.
+  </Note>
+</Accordion>
+
+<Accordion title="podman-compose command not found">
+  The `podman-compose` tool is not bundled with Podman and must be installed separately. Use your distribution's package manager:
+
+  <Tabs>
+    <Tab title="AlmaLinux / RHEL / Fedora">
+      ```bash
+      sudo dnf install -y epel-release podman-compose
+      ```
+    </Tab>
+    <Tab title="Ubuntu / Debian">
+      ```bash
+      sudo apt-get install -y podman-compose
+      ```
+    </Tab>
+  </Tabs>
+
+  After installation, verify it is available:
+
+  ```bash
+  podman-compose --version
+  ```
+</Accordion>
+
+<Accordion title="Fleet Server setup: token not accepted">
+  Fleet Server requires a valid service token generated from a fully initialized Kibana instance. If the token is rejected, it is usually because Kibana was not ready when the token was generated, or the token has expired.
+
+  **Regenerate the service token:**
+
+  1. Open Kibana at `http://localhost:5601`.
+  2. Navigate to **Fleet → Settings**.
+  3. Select **Generate service token** and copy the new token.
+  4. Re-run the Fleet Server setup with the new token.
+
+  <Tip>
+    Always wait for Kibana to display the main UI before generating a Fleet service token. Kibana can take 60–90 seconds to fully initialize after the container starts.
+  </Tip>
+</Accordion>
+
+<Accordion title="Certificate verification failed">
+  Curl and other clients fail TLS verification when the CA certificate path is incorrect or the certificate file is missing.
+
+  **Verify the CA cert path:**
+
+  The correct path is `elk-wolfi/certs/http_ca.crt`. Ensure this file exists:
+
+  ```bash
+  ls -l elk-wolfi/certs/http_ca.crt
+  ```
+
+  **Re-copy the certificate from the container:**
+
+  If the file is missing, copy it directly from the running `es01` container:
+
+  ```bash
+  podman cp es01:/usr/share/elasticsearch/config/certs/http_ca.crt \
+    elk-wolfi/certs/http_ca.crt
+  ```
+
+  If the container is not running, re-run `setup_elasticsearch.sh` to regenerate all certificates.
+</Accordion>
+
+<Accordion title="Ansible: Failed to connect to bus (systemd error)">
+  Ansible's systemd module requires access to the user-level D-Bus session. This error typically appears when running as a non-login user or in a fresh shell that lacks the necessary environment variables.
+
+  **Enable user lingering** so your systemd user session persists without an active login:
+
+  ```bash
+  sudo loginctl enable-linger $USER
+  ```
+
+  **Export the required environment variables** before running Ansible:
+
+  ```bash
+  export XDG_RUNTIME_DIR=/run/user/$(id -u)
+  export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+  ```
+
+  You can add these exports to your `~/.bashrc` or `~/.profile` to avoid having to set them manually each session.
+</Accordion>
+
+<Accordion title="cgroups v1 deprecation warning from Podman">
+  Podman emits this warning on older host kernels or WSL2 configurations that still use cgroups v1. It is a **warning only** — your containers will continue to run normally.
+
+  To suppress the warning in your current session:
+
+  ```bash
+  export PODMAN_IGNORE_CGROUPSV1_WARNING=1
+  ```
+
+  To make this permanent, add the export to your `~/.bashrc`.
+</Accordion>

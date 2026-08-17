@@ -1,0 +1,64 @@
+---
+title: "Elastic Stack on Podman — Release Notes and Changelog"
+sidebarTitle: "Changelog"
+description: "Release history and notable changes for the Elastic Stack on Podman automation toolkit, including version upgrades and new deployment options."
+---
+
+This page tracks notable changes and improvements to the Elastic Stack on Podman toolkit. Each entry documents what was added, changed, or fixed in a given release, giving you a clear picture of how the project has evolved and what to expect when you update to a newer version.
+
+---
+
+## Unreleased — 2025-04-10
+
+### Added
+
+<CardGroup cols={1}>
+  <Card title="Windows 11 WSL2 deployment guide" icon="windows">
+    A comprehensive guide for deploying the full Elastic Stack inside Windows 11 WSL2 environments. The guide covers both **Ubuntu 26.04** and **AlmaLinux 10** distributions, including step-by-step instructions for setting up WSL2, installing Podman 5+, and running the Ansible playbooks.
+  </Card>
+  <Card title="PowerShell-native WSL2 playbook execution" icon="terminal">
+    You can now execute Ansible playbooks directly from **Windows PowerShell** using the native `wsl` command, without opening a separate Linux terminal session. For example:
+
+    ```powershell
+    wsl -d Ubuntu-26.04 bash -c "cd /home/user/podman-elastic-stack && ./run_playbooks.sh"
+    ```
+  </Card>
+  <Card title="HISTORY.md project milestones file" icon="clock-rotate-left">
+    A dedicated `HISTORY.md` file now documents major project milestones and the architectural transition from standalone bash scripts to Ansible playbooks.
+  </Card>
+</CardGroup>
+
+### Changed
+
+- **Default Elastic Stack version** upgraded from `8.17.4` to `9.4.4` across all shell scripts, Ansible playbooks, and variable files.
+- **EPEL release task** in `ansible/setup_elasticsearch.yml` refactored with registered results and explicit error handling, ensuring the playbook continues cleanly even if the EPEL installation step encounters a non-fatal failure.
+- **README.md** and **docs/INSTALL.md** updated to reference version `9.4.4` and document the new Windows 11 WSL2 command workflow.
+- **Documentation reorganized** — all detailed guide files (including `INSTALL.md`, `PLAYBOOKS.md`, and `LOCAL_DEVELOPMENT_FEEDBACK_GUIDE.md`) relocated to the `docs/` directory following repository organization best practices. `README.md`, `HISTORY.md`, and `CHANGELOG.md` remain in the project root.
+
+---
+
+## Project History
+
+The following timeline shows how the Elastic Stack on Podman toolkit grew from a set of targeted shell scripts into a full Ansible-driven deployment framework.
+
+<Steps>
+  <Step title="Initial Setup Scripts — March 2025">
+    The project began as a set of bash scripts (`setup_elasticsearch.sh` and `setup_kibana.sh`) designed to simplify deploying isolated Elasticsearch and Kibana instances using **rootless Podman** with hardened **Wolfi-based container images**. The use of Wolfi images provided enhanced security boundaries compared to standard base images from the outset.
+  </Step>
+
+  <Step title="Multi-Distribution Support — April 2025">
+    The scripts gained automatic host OS detection, dynamically selecting `dnf`-based or `apt`-based installation paths depending on whether the host is an RPM-based system (AlmaLinux, CentOS, Fedora, RHEL) or a Debian-based system (Ubuntu, Debian). This removed the need for separate script variants per distribution.
+  </Step>
+
+  <Step title="Migration to Ansible Playbooks — April 2025">
+    Shell script configurations were migrated into reusable, enterprise-grade Ansible playbooks (`setup_elasticsearch.yml`, `setup_kibana.yml`, `setup_fleet_server.yml`). The Ansible approach introduced declarative state management, proper credential obfuscation via `no_log`, idempotent execution, and hardened file permissions (`0600`) for generated compose configurations containing service tokens and passwords.
+  </Step>
+
+  <Step title="Windows 11 WSL2 Official Support — April 2025">
+    Official documentation and native tooling support for deploying the full stack onto localhost WSL2 hosts was added. Both **Ubuntu 26.04** and **AlmaLinux 10** WSL2 environments are supported, with guidance for executing playbooks via Windows PowerShell using the `wsl` command.
+  </Step>
+
+  <Step title="Elastic Stack 9.4.4 Baseline — April 2025">
+    The project shifted its baseline stack version to **9.4.4** to leverage the latest Elastic security patches, performance improvements, and feature capabilities available in the 9.x release line. All scripts, playbooks, and variable files were updated to this version.
+  </Step>
+</Steps>

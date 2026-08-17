@@ -1,0 +1,189 @@
+---
+title: "Single-Node Elastic Stack Deployment with Podman"
+sidebarTitle: "Single Node"
+description: "Deploy a self-contained single-node Elasticsearch, Kibana, and Fleet Server stack on a Linux VM or bare-metal server using Podman."
+---
+
+A single-node deployment is the fastest way to get a fully functional Elastic Stack running on a single Linux host. It is the right choice for development, testing, training, or any scenario where you need the complete Elasticsearch, Kibana, and Fleet Server experience without the overhead of a distributed cluster.
+
+## Architecture Overview
+
+Three Podman containers run on a single host, all connected through a Podman bridge network named `elastic`. Elasticsearch (`es01`) starts first and generates the SSL certificate and enrollment token that Kibana (`kib01`) and Fleet Server (`fleet-server`) use to join the same trusted network.
+
+```text
+┌─────────────────────────── Linux Host ──────────────────────────────┐
+│                                                                      │
+│   ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐  │
+│   │     es01     │    │    kib01     │    │     fleet-server     │  │
+│   │  :9200 HTTPS │◄───│  :5601 HTTP  │    │     :8220 HTTPS      │  │
+│   └──────┬───────┘    └──────┬───────┘    └──────────┬───────────┘  │
+│          └────────────────── elastic (bridge) ────────┘              │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+<Note>
+  **Prerequisites** — confirm the following before you start:
+  - A Linux host (Ubuntu 24.04/26.04, AlmaLinux 10, Debian, or any Elastic-supported distro)
+  - At least **8 GB RAM** available (16 GB recommended for comfortable operation)
+  - Outbound network access to pull images from Docker Hub
+  - `git` installed
+</Note>
+
+---
+
+## Deployment Steps
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the toolkit onto your Linux host:
+
+    ```bash
+    git clone https://github.com/linuxmalaysia/podman-elastic-stack.git
+    cd podman-elastic-stack
+    ```
+
+    Make the setup scripts executable:
+
+    ```bash
+    chmod +x setup_elasticsearch.sh setup_kibana.sh setup_fleet_server.sh
+    ```
+  </Step>
+
+  <Step title="Run Elasticsearch">
+    Start the Elasticsearch container. The script auto-detects your OS, installs Podman and Podman Compose if needed, pulls the hardened Wolfi image, and launches the container in **single-node discovery mode** (no cluster formation required).
+
+    ```bash
+    ./setup_elasticsearch.sh
+    ```
+
+    The script writes the generated `elastic` user password and the Kibana enrollment token to `elk-wolfi/temp_credentials.txt`. Take note of the password—you will need it for every subsequent step.
+
+    <Note>
+      Single-node mode is set by the `discovery.type=single-node` environment variable injected into the container. This tells Elasticsearch to skip the multi-node bootstrapping process and start immediately as a standalone node. Do not use this mode for production clusters.
+    </Note>
+  </Step>
+
+  <Step title="Verify Elasticsearch is Running">
+    Confirm that Elasticsearch is healthy before proceeding. Replace `<password>` with the value from `elk-wolfi/temp_credentials.txt`:
+
+    ```bash
+    curl --cacert elk-wolfi/certs/http_ca.crt \
+      -u elastic:<password> \
+      https://localhost:9200
+    ```
+
+    A successful response returns a JSON object with `"tagline" : "You Know, for Search"`. If you get a connection error, wait 30 seconds and try again—Elasticsearch can take up to a minute to fully initialise.
+  </Step>
+
+  <Step title="Run Kibana">
+    Once Elasticsearch is healthy, start Kibana. The script retrieves the enrollment token from the running Elasticsearch container automatically:
+
+    ```bash
+    ./setup_kibana.sh
+    ```
+
+    After the script completes, a verification code command is printed in the terminal output. You will need that code when you open Kibana in your browser for the first time.
+  </Step>
+
+  <Step title="Run Fleet Server (Optional)">
+    Fleet Server enables centralised Elastic Agent management. To start it, you must first generate a **Fleet service token** from the Kibana UI:
+
+    1. Open Kibana at `http://localhost:5601`.
+    2. Navigate to **Management → Fleet → Settings**.
+    3. Copy the Fleet Server service token displayed there.
+    4. Export it as an environment variable, then run the Fleet Server script:
+
+    ```bash
+    export FLEET_SERVER_SERVICE_TOKEN=<your-token-here>
+    ./setup_fleet_server.sh
+    ```
+
+    <Note>
+      Fleet Server is optional. Skip this step if you only need Elasticsearch and Kibana for log ingestion or visualisation without Elastic Agent management.
+    </Note>
+  </Step>
+
+  <Step title="Access Your Services">
+    All services bind to `0.0.0.0` when `deployment_option: "single_node"` is set (see the configuration note below), making them reachable from any machine that can reach this host.
+
+    | Service | Port | URL |
+    |---|---|---|
+    | Elasticsearch | 9200 | `https://<host-ip>:9200` |
+    | Kibana | 5601 | `http://<host-ip>:5601` |
+    | Fleet Server | 8220 | `https://<host-ip>:8220` |
+
+    Use username `elastic` and the password from `elk-wolfi/temp_credentials.txt` for all services.
+  </Step>
+</Steps>
+
+---
+
+## Configuration
+
+### Deployment Option Setting
+
+The file `ansible/group_vars/all.yml` controls bind address behaviour across the whole stack. For a single-node server deployment where services must be reachable over the network, set:
+
+```yaml
+# ansible/group_vars/all.yml
+deployment_option: "single_node"
+```
+
+With this value, the toolkit automatically resolves all bind addresses to `0.0.0.0`:
+
+```yaml
+elasticsearch_bind_address: "0.0.0.0"
+kibana_bind_address:        "0.0.0.0"
+fleet_server_bind_address:  "0.0.0.0"
+```
+
+If you leave `deployment_option` at its default value of `"wsl2"`, all services bind to `127.0.0.1` and are accessible from `localhost` only.
+
+---
+
+## Cleanup
+
+To remove all containers, networks, and persistent data, run the following commands from the repository root:
+
+<Warning>
+  The commands below permanently delete all Elasticsearch index data stored under `/data`. Back up any data you want to keep before running them.
+</Warning>
+
+```bash
+# Stop and remove the Elasticsearch container
+cd elk-wolfi
+podman-compose down
+
+# Stop and remove the Kibana container
+podman-compose -f podman-compose-kibana.yml down
+
+# Remove all persistent data volumes
+sudo rm -rf /data
+```
+
+To also prune unused Podman networks:
+
+```bash
+podman network prune
+```
+
+---
+
+## What's Next
+
+<CardGroup cols={2}>
+  <Card
+    title="Multi-Node Cluster"
+    icon="network-wired"
+    href="/guides/multi-node"
+  >
+    Spread your Elasticsearch cluster across multiple Linux hosts or VMs for distributed deployments.
+  </Card>
+  <Card
+    title="WSL2 Setup"
+    icon="windows"
+    href="/guides/wsl2-setup"
+  >
+    Deploy the single-node stack on Windows 11 using a WSL2 Linux environment.
+  </Card>
+</CardGroup>

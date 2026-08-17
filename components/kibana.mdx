@@ -1,0 +1,212 @@
+---
+title: "Kibana Setup and Access with Podman Wolfi Images"
+sidebarTitle: "Kibana"
+description: "Deploy Kibana 9.4.4 with a hardened Wolfi image using Podman. Configure the Kibana enrollment token and access the web UI at port 5601."
+---
+
+Kibana provides the web-based interface you use to explore Elasticsearch data, build dashboards, and manage the Elastic Stack. The `setup_kibana.sh` script automates the full configuration workflow — pulling the matching Wolfi image, extracting the default `kibana.yml`, generating the enrollment token, and starting the container — so Kibana is ready to use without any manual YAML editing.
+
+## Prerequisites
+
+<CardGroup cols={2}>
+  <Card title="Elasticsearch Running" icon="database">
+    Run `setup_elasticsearch.sh` successfully before starting Kibana. The Kibana script reads credentials and the SSL certificate from the files Elasticsearch setup creates.
+  </Card>
+  <Card title="Network and Certificate Present" icon="lock">
+    The Podman network `elk-wolfi_elastic` and the file `elk-wolfi/certs/http_ca.crt` must exist. Both are created automatically by `setup_elasticsearch.sh`.
+  </Card>
+</CardGroup>
+
+---
+
+## What the Setup Script Does
+
+<Steps>
+  <Step title="Verify Elasticsearch and retrieve its version">
+    Reads the `elastic` password from `elk-wolfi/temp_credentials.txt`, calls the Elasticsearch API at `https://localhost:9200`, confirms the `"You Know, for Search"` response, and parses the exact version number to use as the Kibana image tag.
+  </Step>
+
+  <Step title="Pull the matching Kibana Wolfi image">
+    Downloads the Kibana image whose version tag matches the running Elasticsearch instance:
+
+    ```bash
+    docker.elastic.co/kibana/kibana-wolfi:<elasticsearch-version>
+    ```
+
+    This guarantees version compatibility between the two components.
+  </Step>
+
+  <Step title="Extract the default kibana.yml">
+    Starts a temporary container (`temp_kib01`) with `sleep infinity`, copies `/usr/share/kibana/config/kibana.yml` to `elk-wolfi/kibana.yml` on the host, then stops and removes the temporary container. Review and customise this file before restarting Kibana.
+  </Step>
+
+  <Step title="Create podman-compose-kibana.yml and start the container">
+    Generates `elk-wolfi/podman-compose-kibana.yml`, then starts the Kibana container in detached mode:
+
+    ```bash
+    cd elk-wolfi && podman-compose -f podman-compose-kibana.yml up -d
+    ```
+  </Step>
+
+  <Step title="Retrieve the Kibana enrollment token">
+    Calls `elasticsearch-create-enrollment-token -s kibana` inside the `es01` container and saves the token to `elk-wolfi/temp_credentials.txt`.
+  </Step>
+
+  <Step title="Print the verification code command">
+    After the container starts, the script automatically runs the verification code command and prints the six-digit code you will need to complete the Kibana setup flow in your browser.
+  </Step>
+</Steps>
+
+---
+
+## Running the Setup
+
+Make the script executable, then run it from the repository root:
+
+```bash
+chmod +x setup_kibana.sh
+./setup_kibana.sh
+```
+
+---
+
+## Script Variables
+
+The following variables control the Kibana deployment. They are set at the top of `setup_kibana.sh` and can be overridden by exporting them before running the script.
+
+| Variable | Default Value | Description |
+|---|---|---|
+| `KIBANA_IMAGE_NAME` | `docker.elastic.co/kibana/kibana-wolfi` | Registry path for the Kibana Wolfi image |
+| `KIBANA_CONTAINER_NAME` | `kib01` | Name assigned to the running Kibana container |
+| `KIBANA_PORT` | `5601` | Host port mapped to the Kibana web UI |
+| `NETWORK_NAME` | `elk-wolfi_elastic` | Podman bridge network shared with Elasticsearch |
+| `BIND_ADDRESS` | `127.0.0.1` | Host address Kibana binds to (set to `0.0.0.0` to expose externally) |
+
+---
+
+## Container Configuration
+
+The script writes the following compose file to `elk-wolfi/podman-compose-kibana.yml`:
+
+```yaml
+version: '3.8'
+services:
+  kibana:
+    image: docker.elastic.co/kibana/kibana-wolfi:9.4.4
+    container_name: kib01
+    networks:
+      - elk-wolfi_elastic
+    ports:
+      - "127.0.0.1:5601:5601"
+    volumes:
+      - kibana_data:/data/kibana_data
+      - ./kibana.yml:/usr/share/kibana/config/kibana.yml
+volumes:
+  kibana_data:
+networks:
+  elk-wolfi_elastic:
+    external: true
+```
+
+The `kibana.yml` mount lets you customise Kibana configuration without rebuilding the image.
+
+---
+
+## Accessing Kibana
+
+<Steps>
+  <Step title="Open Kibana in your browser">
+    Navigate to:
+
+    ```
+    http://localhost:5601
+    ```
+  </Step>
+
+  <Step title="Enter the enrollment token">
+    Kibana's first-run wizard asks for an enrollment token. Retrieve it from the credentials file:
+
+    ```bash
+    grep 'Kibana enrollment token' elk-wolfi/temp_credentials.txt
+    ```
+
+    Paste the token into the browser prompt.
+  </Step>
+
+  <Step title="Enter the verification code">
+    Kibana displays a prompt for a six-digit verification code. Retrieve it by running:
+
+    ```bash
+    podman exec -it kib01 /usr/share/kibana/bin/kibana-verification-code
+    ```
+
+    Enter the code in the browser to complete the pairing.
+  </Step>
+
+  <Step title="Log in">
+    Use the username `elastic` and the password from `elk-wolfi/temp_credentials.txt`:
+
+    ```bash
+    grep 'Elastic password' elk-wolfi/temp_credentials.txt
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Custom Configuration
+
+The script saves the default `kibana.yml` extracted from the container image to `elk-wolfi/kibana.yml`. Open this file to review and customise settings such as the server hostname, Elasticsearch host URL, and SSL options. After making changes, restart the container to apply them:
+
+```bash
+podman restart kib01
+```
+
+For changes that require a full container replacement (e.g., mounting new volumes), bring the stack down and back up:
+
+```bash
+cd elk-wolfi && podman-compose -f podman-compose-kibana.yml down
+cd elk-wolfi && podman-compose -f podman-compose-kibana.yml up -d
+```
+
+---
+
+## Managing Kibana
+
+<CodeGroup>
+
+```bash Stop
+cd elk-wolfi && podman-compose -f podman-compose-kibana.yml down
+```
+
+```bash View logs
+podman logs kib01
+```
+
+```bash Restart
+podman restart kib01
+```
+
+```bash Check status
+podman ps --filter name=kib01
+```
+
+</CodeGroup>
+
+---
+
+## Cleanup
+
+To remove the Kibana container, its named volume, and the generated configuration files:
+
+```bash
+# Stop and remove the container and volume
+cd elk-wolfi && podman-compose -f podman-compose-kibana.yml down --volumes
+
+# Remove configuration files
+rm -f elk-wolfi/kibana.yml elk-wolfi/podman-compose-kibana.yml
+```
+
+<Warning>
+  Running `podman-compose down --volumes` deletes the `kibana_data` named volume. Any saved Kibana dashboards, visualisations, and settings stored in that volume will be permanently lost. Export any important objects from Kibana's **Stack Management → Saved Objects** screen before running this command.
+</Warning>

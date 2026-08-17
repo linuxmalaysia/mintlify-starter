@@ -1,0 +1,267 @@
+---
+title: "Run a 3-Node Elasticsearch Cluster on WSL2"
+sidebarTitle: "3-Node Cluster"
+description: "Set up a fully functional 3-node Elasticsearch cluster plus Kibana on a single WSL2 instance using Podman and Ansible."
+---
+
+This guide shows you how to simulate a production-grade Elasticsearch cluster entirely within WSL2 on a single Windows machine. By running three Elasticsearch nodes plus Kibana as separate Podman containers inside one WSL2 instance, you get real quorum voting, shard replication, and cluster health behaviour—without needing multiple physical hosts or VMs.
+
+## Minimum Requirements
+
+| Resource | Requirement |
+|---|---|
+| System RAM | **16 GB** (WSL2 will use ~10–12 GB) |
+| WSL2 CPU allocation | 8 logical processors |
+| WSL2 swap | 16 GB (recommended) |
+| Linux kernel parameter | `vm.max_map_count=262144` |
+
+---
+
+## Configure `.wslconfig`
+
+WSL2 defaults to using only half your system RAM. For a three-node Elasticsearch cluster you must raise this limit. Place the following file at `C:\Users\YourName\.wslconfig` on your **Windows** machine (create it if it does not exist):
+
+```ini
+[wsl2]
+memory=12GB
+processors=8
+swap=16GB
+networkingMode=mirrored
+```
+
+<Note>
+  The `networkingMode=mirrored` setting (available from WSL2 kernel 5.15.90.1 onwards on Windows 11 22H2+) makes WSL2 network interfaces mirror the Windows host. This means `localhost` in Windows resolves directly to services running inside WSL2 without any port-forwarding rules.
+</Note>
+
+---
+
+## Setup Steps
+
+<Steps>
+  <Step title="Configure .wslconfig and Restart WSL2">
+    Save the `.wslconfig` file shown above to your Windows user profile folder:
+
+    ```
+    C:\Users\YourName\.wslconfig
+    ```
+
+    Then shut down WSL2 from PowerShell and reopen your Linux distribution to apply the new memory and CPU limits:
+
+    ```powershell
+    wsl.exe --shutdown
+    ```
+
+    Wait about 10 seconds, then reopen Ubuntu 26.04 or AlmaLinux 10 from the Start menu.
+
+    Verify the new limits inside WSL2:
+
+    ```bash
+    free -h       # Should show ~12 GB total memory
+    nproc         # Should report 8 processors
+    ```
+  </Step>
+
+  <Step title="Set the Kernel vm.max_map_count Parameter">
+    Elasticsearch requires the kernel's virtual memory map count to be at least 262144. Set it now inside your WSL2 session:
+
+    ```bash
+    # Apply the setting immediately (until next reboot)
+    sudo sysctl -w vm.max_map_count=262144
+
+    # Verify
+    sysctl vm.max_map_count
+    ```
+
+    To make this setting persist across WSL2 restarts, add it to `/etc/sysctl.conf`:
+
+    ```bash
+    echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.conf
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    Install Podman, Podman Compose, and Ansible inside your WSL2 distribution:
+
+    <Tabs>
+      <Tab title="Ubuntu 26.04">
+        ```bash
+        sudo apt-get update
+        sudo apt-get install -y podman podman-compose ansible git
+        ```
+      </Tab>
+      <Tab title="AlmaLinux 10">
+        ```bash
+        sudo dnf install -y epel-release
+        sudo dnf install -y podman podman-compose ansible git
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Clone the Repository">
+    Clone the toolkit into your WSL2 home directory:
+
+    ```bash
+    cd ~
+    git clone https://github.com/linuxmalaysia/podman-elastic-stack.git
+    cd podman-elastic-stack
+    ```
+  </Step>
+
+  <Step title="Review the 3-Node Inventory">
+    The repository includes a ready-made inventory file for the WSL2 three-node topology at `inventory/hosts.wsl.3node.yml`. Open it and replace `your_username` with your actual WSL2 Linux username:
+
+    ```bash
+    sed -i 's/your_username/'"$USER"'/g' inventory/hosts.wsl.3node.yml
+    ```
+
+    The inventory defines three Elasticsearch nodes and one Kibana instance, all running on `localhost`:
+
+    ```yaml
+    all:
+      hosts:
+        localhost:
+          ansible_connection: local
+      vars:
+        ansible_user: your_username
+        cluster_name: "dsom-wsl-cluster"
+        storage_base: "/opt/dsom-persistence/data"
+        kibana_port: 5601
+        nodes:
+          - name: "es-node-01"
+            http_port: 9200
+            transport_port: 9300
+          - name: "es-node-02"
+            http_port: 9201
+            transport_port: 9301
+          - name: "es-node-03"
+            http_port: 9202
+            transport_port: 9302
+    ```
+  </Step>
+
+  <Step title="Run the Playbooks with the 3-Node Inventory">
+    Deploy the cluster by passing the WSL2 three-node inventory to the playbook runner:
+
+    ```bash
+    ansible-playbook -i inventory/hosts.wsl.3node.yml site.yml
+    ```
+
+    Ansible pulls the Elasticsearch and Kibana Wolfi images (~1 GB total), generates TLS certificates, creates the persistent data directories under `/opt/dsom-persistence/data`, and launches all four containers.
+
+    <Tip>
+      The first run takes 5–10 minutes depending on your download speed. Subsequent runs are much faster because the images are already cached locally.
+    </Tip>
+  </Step>
+
+  <Step title="Verify All Containers Are Running">
+    Check that all four containers started successfully:
+
+    ```bash
+    podman ps
+    ```
+
+    You should see all four containers in the `Up` state:
+
+    ```
+    CONTAINER ID  IMAGE                    NAMES
+    ...           elasticsearch-wolfi:...  dsom-persistence-es-node-01
+    ...           elasticsearch-wolfi:...  dsom-persistence-es-node-02
+    ...           elasticsearch-wolfi:...  dsom-persistence-es-node-03
+    ...           kibana-wolfi:...         dsom-kibana-kibana-local
+    ```
+
+    If any container is missing, check its logs:
+
+    ```bash
+    podman logs dsom-persistence-es-node-01
+    ```
+  </Step>
+
+  <Step title="Check Cluster Health">
+    Verify that all three nodes formed a quorum and the cluster is green. Replace `<password>` with the value from `elk-wolfi/temp_credentials.txt`:
+
+    ```bash
+    curl --cacert elk-wolfi/certs/http_ca.crt \
+      -u elastic:<password> \
+      https://localhost:9200/_cluster/health?pretty
+    ```
+
+    A healthy cluster returns:
+
+    ```json
+    {
+      "cluster_name" : "dsom-wsl-cluster",
+      "status" : "green",
+      "number_of_nodes" : 3,
+      "number_of_data_nodes" : 3
+    }
+    ```
+
+    If the cluster status is `red`, give it another 60 seconds and retry—Elasticsearch nodes need time to discover each other and elect a master.
+  </Step>
+
+  <Step title="Access Kibana">
+    Open your Windows browser and navigate to:
+
+    ```
+    http://localhost:5601
+    ```
+
+    Log in with:
+    - **Username:** `elastic`
+    - **Password:** Check `vault/persistence_secrets.yml` or `elk-wolfi/temp_credentials.txt`
+
+    From the Kibana home page you can explore your cluster topology under **Stack Monitoring**, or start ingesting data with **Integrations**.
+  </Step>
+</Steps>
+
+---
+
+## Teardown
+
+When you are done, remove all containers and persistent data with the following commands:
+
+<Warning>
+  The teardown commands below **permanently delete all cluster data** stored under `/opt/dsom-persistence`. This action cannot be undone. Back up any Elasticsearch indices or Kibana dashboards you want to keep before running these commands.
+</Warning>
+
+```bash
+# Stop and remove all four containers
+podman rm -f \
+  dsom-persistence-es-node-01 \
+  dsom-persistence-es-node-02 \
+  dsom-persistence-es-node-03 \
+  dsom-kibana-kibana-local
+
+# Remove all persistent cluster data
+sudo rm -rf /opt/dsom-persistence
+```
+
+To also clean up unused Podman networks and images:
+
+```bash
+podman network prune
+podman image prune -a
+```
+
+---
+
+## What's Next
+
+<CardGroup cols={2}>
+  <Card
+    title="WSL2 Basic Setup"
+    icon="windows"
+    href="/guides/wsl2-setup"
+  >
+    Start here if you haven't set up WSL2 yet — covers single-service deployments and PowerShell integration.
+  </Card>
+  <Card
+    title="Multi-Node on Linux Hosts"
+    icon="network-wired"
+    href="/guides/multi-node"
+  >
+    Scale beyond WSL2 and deploy across multiple physical machines or VMs using Ansible.
+  </Card>
+</CardGroup>

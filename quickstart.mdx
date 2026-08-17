@@ -1,47 +1,74 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with Elastic Stack on Podman in Minutes"
+sidebarTitle: "Quickstart"
+description: "Set up Elasticsearch 9.4.4 and Kibana on your Linux system or WSL2 in under 10 minutes using the automated setup scripts."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+This guide is the fastest path to a running Elastic Stack. You will clone the repository, run two shell scripts, and have Elasticsearch and Kibana serving requests — with TLS, auto-generated credentials, and a hardened Wolfi image — in under ten minutes on any supported Linux distribution or WSL2 environment. Before you start, make sure your system meets the [Prerequisites](/prerequisites), particularly that `vm.max_map_count` is set to `262144` and you have at least 8 GB of available RAM.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Clone the repository">
+    Clone the project from GitHub and change into the repository directory.
 
     ```bash
-    npm install your-package
+    git clone https://github.com/linuxmalaysia/podman-elastic-stack-ai.git && cd podman-elastic-stack-ai
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Make the scripts executable">
+    Grant execute permission to both setup scripts before running them.
 
     ```bash
-    your-cli init
+    chmod +x setup_elasticsearch.sh setup_kibana.sh
     ```
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Run the Elasticsearch setup">
+    Execute the Elasticsearch setup script. The script automatically detects your operating system and installs Podman and `podman-compose` if they are not already present. It then pulls the official `elasticsearch-wolfi:9.4.4` hardened image, starts the `es01` container on port 9200, resets the `elastic` user password, generates a Kibana enrollment token, copies the TLS CA certificate to `elk-wolfi/certs/http_ca.crt`, and saves all credentials to `elk-wolfi/temp_credentials.txt`.
 
     ```bash
-    your-cli start
+    ./setup_elasticsearch.sh
     ```
+
+    <Warning>
+      Do not proceed to the next step until this script exits successfully and you see the Elasticsearch API response in the terminal output. The Kibana script depends on a live Elasticsearch instance.
+    </Warning>
+  </Step>
+
+  <Step title="Run the Kibana setup">
+    With Elasticsearch running, execute the Kibana setup script. It verifies that the Elasticsearch network and certificate exist, pulls the `kibana-wolfi:9.4.4` image, writes a `podman-compose-kibana.yml` file, starts the `kib01` container on port 5601, and retrieves the Kibana enrollment token from the running Elasticsearch container.
+
+    ```bash
+    ./setup_kibana.sh
+    ```
+
+    After the script finishes, it prints the URL to access Kibana and the command you need to retrieve the Kibana verification code for the initial browser setup.
+  </Step>
+
+  <Step title="Access your stack">
+    Open your browser and navigate to the following endpoints to confirm both services are healthy:
+
+    - **Kibana UI:** `http://localhost:5601` — complete the on-screen enrollment flow using the verification code from the previous step.
+    - **Elasticsearch API:** `https://localhost:9200` — use the `elastic` user and the password from `elk-wolfi/temp_credentials.txt`.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## Verify Elasticsearch with curl
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+After setup completes, run the following command to confirm Elasticsearch is responding correctly. Replace `<your-password>` with the value of `ELASTIC_PASSWORD` from `elk-wolfi/temp_credentials.txt`.
+
+```bash
+curl --cacert elk-wolfi/certs/http_ca.crt \
+  -u elastic:<your-password> \
+  https://localhost:9200
+```
+
+A successful response returns a JSON object showing the cluster name, version, and `"tagline": "You Know, for Search"`.
+
+<Note>
+  Both the `elastic` user password and the Kibana enrollment token are saved automatically to `elk-wolfi/temp_credentials.txt` in the repository directory. Open that file to retrieve your credentials at any time.
+</Note>
+
+<Tip>
+  Running on Windows 11? The setup scripts work inside WSL2 without modification, but a 3-node cluster topology is also available for higher-fidelity testing. See the [WSL2 Setup Guide](/guides/wsl2-setup) for step-by-step instructions including the recommended `.wslconfig` memory and CPU settings.
 </Tip>
